@@ -70,9 +70,8 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages \
     -r /tmp/requirements.txt && rm /tmp/requirements.txt
 
 # ── Install Linear MCP server ───────────────────────────────────────
-# Linear MCP server is fetched at runtime by npx -y in opencode.json
-# Pre-install attempt (may fail if not on npm, npx will handle it)
-RUN npx -y @jerhadf/linear-mcp-server --help 2>/dev/null || true
+# Linear MCP server — the npm package is "linear-mcp-server" (by jerhadf)
+RUN npm install -g linear-mcp-server
 
 # ── Create non-root user ────────────────────────────────────────────
 RUN groupadd -r crabcode && useradd -r -g crabcode -m -d /home/crabcode crabcode
