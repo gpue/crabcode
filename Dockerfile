@@ -18,16 +18,7 @@ RUN xcaddy build v${CADDY_VERSION} \
         --with github.com/caddyserver/replace-response \
         --output /usr/local/bin/caddy
 
-# ── Stage 2: Build custom frontend ─────────────────────────────────
-FROM node:22-bookworm-slim AS ui-builder
-
-WORKDIR /ui
-COPY ui/package.json ui/package-lock.json ui/tsconfig.json ui/tsconfig.app.json ui/vite.config.ts ./
-RUN npm ci
-COPY ui/ ./
-RUN npm run build
-
-# ── Stage 3: Final image ───────────────────────────────────────────
+# ── Stage 2: Final image ──────────────────────────────────────────
 FROM debian:bookworm-slim
 
 # ── Versions ────────────────────────────────────────────────────────
@@ -91,7 +82,7 @@ RUN mkdir -p /workspace \
     && mkdir -p /home/crabcode/.local/share/opencode \
     && mkdir -p /home/crabcode/.crabtalk/local/agents \
     && mkdir -p /home/crabcode/.crabtalk/run \
-    && mkdir -p /app/static /app/ui /app/proto \
+    && mkdir -p /app/static /app/proto \
     && mkdir -p /caddy/config /caddy/data \
     && mkdir -p /var/lib/tailscale \
     && chown -R crabcode:crabcode /workspace /home/crabcode /app /caddy
@@ -111,7 +102,6 @@ COPY --chown=crabcode:crabcode scripts/ /app/scripts/
 COPY --chown=crabcode:crabcode start.sh /app/start.sh
 COPY --chown=crabcode:crabcode Caddyfile /app/Caddyfile
 COPY --chown=crabcode:crabcode package.json /app/package.json
-COPY --from=ui-builder --chown=crabcode:crabcode /ui/dist/ /app/ui/
 
 # ── Install Node.js deps for bridge scripts ─────────────────────────
 RUN cd /app && npm install --omit=dev

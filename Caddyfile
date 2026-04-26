@@ -18,19 +18,8 @@
 		reverse_proxy localhost:8081
 	}
 
-	handle_path /api/* {
-		reverse_proxy localhost:4096
-	}
-
-	handle_path /assets/* {
-		root * /app/ui/assets
-		file_server
-	}
-
+	# Everything else goes to OpenCode's built-in web UI
 	handle /* {
-		root * /app/ui
-		header Cache-Control "no-store"
-		try_files {path} /index.html
-		file_server
+		reverse_proxy localhost:4096
 	}
 }
