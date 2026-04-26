@@ -150,10 +150,19 @@ python3 /app/mcp_bridge.py &
 MCP_PID=$!
 
 # ── OpenCode web UI ──────────────────────────────────────────────
-env opencode web \
+# Run from the first available repo in /workspace, or /workspace itself
+OPENCODE_CWD="${WORKSPACE_DIR}"
+for d in "${WORKSPACE_DIR}"/*/; do
+    if [ -d "${d}.git" ]; then
+        OPENCODE_CWD="${d}"
+        break
+    fi
+done
+echo "[opencode] Starting in ${OPENCODE_CWD}"
+(cd "${OPENCODE_CWD}" && env opencode web \
     --port "${OPENCODE_PORT}" \
     --hostname 127.0.0.1 \
-    --cors "*" &
+    --cors "*") &
 OPENCODE_PID=$!
 
 sleep 2
