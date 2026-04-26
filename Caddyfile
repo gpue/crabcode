@@ -3,18 +3,12 @@
 		respond "ok" 200
 	}
 
-	handle_path /mcp/* {
-		reverse_proxy localhost:8081
-	}
-	handle_path /mcp {
+	# MCP bridge on a distinct path (for CrabTalk/external access)
+	handle_path /mcp-bridge/* {
 		reverse_proxy localhost:8081
 	}
 
 	handle_path /internal/* {
-		reverse_proxy localhost:8081
-	}
-
-	handle /events {
 		reverse_proxy localhost:8081
 	}
 
