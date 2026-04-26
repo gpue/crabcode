@@ -138,8 +138,8 @@ async function sendPromptToSession(sessionId, prompt, providerID, modelID) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       prompt,
-      providerID: providerID || "azure-openai",
-      modelID: modelID || "crabcode",
+      providerID: providerID || "copilot",
+      modelID: modelID || "claude-sonnet-4",
       variant: "medium",
       mode: "code",
     }),

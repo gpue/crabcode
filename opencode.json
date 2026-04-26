@@ -1,6 +1,12 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "permission": "allow",
+  "provider": {
+    "copilot": {
+      "id": "copilot",
+      "name": "GitHub Copilot"
+    }
+  },
   "mcp": {
     "linear": {
       "type": "command",

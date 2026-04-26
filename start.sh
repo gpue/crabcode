@@ -77,7 +77,7 @@ echo "===================="
 cleanup() {
     echo "Shutting down..."
     kill "$TAILSCALE_PID" "$MCP_PID" "$OPENCODE_PID" "$CRABTALK_PID" \
-         "$AZURE_PROXY_PID" "$TELEGRAM_PID" "$LINEAR_AGENT_PID" 2>/dev/null || true
+         "$COPILOT_PROXY_PID" "$TELEGRAM_PID" "$LINEAR_AGENT_PID" 2>/dev/null || true
     wait 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
@@ -100,9 +100,9 @@ tailscale --socket="${WORKSPACE_DIR}/.tailscale/tailscaled.sock" up \
 
 echo "[tailscale] Status: $(tailscale --socket="${WORKSPACE_DIR}/.tailscale/tailscaled.sock" status --self 2>/dev/null | head -1)"
 
-# ── Azure OpenAI proxy ───────────────────────────────────────────
-node /app/scripts/azure-openai-proxy.mjs &
-AZURE_PROXY_PID=$!
+# ── GitHub Copilot proxy ─────────────────────────────────────────
+node /app/scripts/copilot-proxy.mjs &
+COPILOT_PROXY_PID=$!
 
 sleep 1
 

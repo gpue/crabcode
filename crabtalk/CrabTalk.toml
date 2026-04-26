@@ -5,7 +5,7 @@
 
 [agents.crabcode]
 description = "AI coding agent that works on Linear tickets via OpenCode"
-model = "crabcode"
+model = "claude-sonnet-4"
 max_iterations = 64
 thinking = false
 members = ["coder", "reviewer"]
@@ -13,13 +13,13 @@ mcps = ["linear"]
 
 [agents.coder]
 description = "Writes code, creates files, runs tests via OpenCode sessions"
-model = "crabcode"
+model = "claude-sonnet-4"
 max_iterations = 32
 mcps = ["opencode"]
 
 [agents.reviewer]
 description = "Reviews code changes, creates PRs, manages git workflow"
-model = "crabcode"
+model = "claude-sonnet-4"
 max_iterations = 16
 mcps = ["opencode"]
 
