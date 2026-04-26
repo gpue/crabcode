@@ -101,6 +101,31 @@ tailscale --socket=/tmp/tailscale/tailscaled.sock up \
 
 echo "[tailscale] Status: $(tailscale --socket=/tmp/tailscale/tailscaled.sock status --self 2>/dev/null | head -1)"
 
+# ── Bootstrap workspace repos ───────────────────────────────────
+# Clone default repos into /workspace on first boot so OpenCode has projects to work with.
+# Uses GH_TOKEN for auth. Add more repos to the array as needed.
+REPOS=(
+    "gpue/crabcode"
+)
+
+if [ -n "${GH_TOKEN:-}" ]; then
+    git config --global credential.helper store
+    echo "https://x-access-token:${GH_TOKEN}@github.com" > "${HOME}/.git-credentials"
+    git config --global user.name "crab"
+    git config --global user.email "georg.pueschel+crabcode@gmail.com"
+fi
+
+for repo in "${REPOS[@]}"; do
+    repo_name="${repo##*/}"
+    if [ ! -d "${WORKSPACE_DIR}/${repo_name}" ]; then
+        echo "[workspace] Cloning ${repo} into ${WORKSPACE_DIR}/${repo_name}..."
+        git clone "https://github.com/${repo}.git" "${WORKSPACE_DIR}/${repo_name}" 2>&1 || \
+            echo "[workspace] Failed to clone ${repo}"
+    else
+        echo "[workspace] ${repo_name} already exists, skipping"
+    fi
+done
+
 # ── GitHub Copilot proxy ─────────────────────────────────────────
 node /app/scripts/copilot-proxy.mjs &
 COPILOT_PROXY_PID=$!
