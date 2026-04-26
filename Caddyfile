@@ -14,6 +14,8 @@
 
 	# Everything else goes to OpenCode's built-in web UI
 	handle /* {
-		reverse_proxy localhost:4096
+		reverse_proxy localhost:4096 {
+			header_down -Content-Security-Policy
+		}
 	}
 }

@@ -24,8 +24,9 @@ mkdir -p "${OPENCODE_XDG_ROOT}/config/opencode" \
          "${XDG_CACHE_HOME}"
 
 # Always overwrite config from image (ensures config updates propagate)
+# Expand env vars (e.g. LINEAR_API_KEY) in the config
 if [ -f /home/crabcode/.config/opencode/opencode.json ]; then
-    cp /home/crabcode/.config/opencode/opencode.json "${OPENCODE_XDG_ROOT}/config/opencode/opencode.json"
+    envsubst < /home/crabcode/.config/opencode/opencode.json > "${OPENCODE_XDG_ROOT}/config/opencode/opencode.json"
 fi
 
 # Persist git config
