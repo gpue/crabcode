@@ -83,22 +83,22 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # ── Start Tailscale (runs as root, userspace networking) ─────────
-# Tailscale state is persisted on the volume
-mkdir -p "${WORKSPACE_DIR}/.tailscale"
+# Tailscale state is persisted on the volume, but socket must be local
+mkdir -p "${WORKSPACE_DIR}/.tailscale" /tmp/tailscale
 tailscaled --state="${WORKSPACE_DIR}/.tailscale/tailscaled.state" \
-           --socket="${WORKSPACE_DIR}/.tailscale/tailscaled.sock" \
+           --socket=/tmp/tailscale/tailscaled.sock \
            --tun=userspace-networking &
 TAILSCALE_PID=$!
 sleep 2
 
 # Authenticate with pre-auth key (only needed on first run)
-tailscale --socket="${WORKSPACE_DIR}/.tailscale/tailscaled.sock" up \
+tailscale --socket=/tmp/tailscale/tailscaled.sock up \
     --authkey="${TS_AUTHKEY:-}" \
     --hostname="${TS_HOSTNAME:-crabcode}" \
     --accept-routes \
     2>/dev/null || echo "[tailscale] Already authenticated or no auth key"
 
-echo "[tailscale] Status: $(tailscale --socket="${WORKSPACE_DIR}/.tailscale/tailscaled.sock" status --self 2>/dev/null | head -1)"
+echo "[tailscale] Status: $(tailscale --socket=/tmp/tailscale/tailscaled.sock status --self 2>/dev/null | head -1)"
 
 # ── GitHub Copilot proxy ─────────────────────────────────────────
 node /app/scripts/copilot-proxy.mjs &
