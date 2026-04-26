@@ -1,4 +1,4 @@
-:8080 {
+:80 {
 	handle /health {
 		respond "ok" 200
 	}

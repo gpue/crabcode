@@ -121,6 +121,6 @@ RUN chmod +x /app/start.sh
 WORKDIR /workspace
 
 # Only Caddy port — reachable exclusively via Tailscale
-EXPOSE 8080
+EXPOSE 80
 
 ENTRYPOINT ["/app/start.sh"]

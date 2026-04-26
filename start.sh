@@ -65,7 +65,7 @@ envsubst < /home/crabcode/.crabtalk/config.toml > /tmp/config.toml && mv /tmp/co
 envsubst < /home/crabcode/.crabtalk/local/CrabTalk.toml > /tmp/CrabTalk.toml && mv /tmp/CrabTalk.toml /home/crabcode/.crabtalk/local/CrabTalk.toml
 
 echo "=== crabcode ==="
-echo "  Caddy proxy     : port 8080 (Tailscale only)"
+echo "  Caddy proxy     : port 80 (Tailscale only)"
 echo "  OpenCode web UI : port ${OPENCODE_PORT} (internal)"
 echo "  MCP bridge      : port ${MCP_BRIDGE_PORT} (internal)"
 echo "  CrabTalk        : port 6688 (internal)"
