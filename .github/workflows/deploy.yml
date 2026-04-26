@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 env:
-  RESOURCE_GROUP: crabcode-rg
+  RESOURCE_GROUP: wabo
   CONTAINER_APP_NAME: crabcode
   CONTAINER_APP_ENV: crabcode-env
   IMAGE_NAME: waboreg.azurecr.io/crabcode

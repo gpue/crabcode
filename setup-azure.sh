@@ -3,7 +3,7 @@
 # Run this locally with Azure CLI authenticated.
 set -euo pipefail
 
-RESOURCE_GROUP="crabcode-rg"
+RESOURCE_GROUP="wabo"
 LOCATION="westeurope"
 CONTAINER_APP_ENV="crabcode-env"
 CONTAINER_APP_NAME="crabcode"
@@ -11,8 +11,7 @@ STORAGE_ACCOUNT="crabcodestorage"
 FILE_SHARE="crabcode-workspace"
 IMAGE="waboreg.azurecr.io/crabcode:latest"
 
-echo "=== Creating resource group ==="
-az group create --name "$RESOURCE_GROUP" --location "$LOCATION"
+echo "=== Using existing resource group: $RESOURCE_GROUP ==="
 
 echo "=== Creating storage account ==="
 az storage account create \
