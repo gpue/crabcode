@@ -1,0 +1,34 @@
+# CrabTalk local manifest for crabcode
+# Agents and MCP servers — goes to ~/.crabtalk/local/CrabTalk.toml
+
+# ── Agents ───────────────────────────────────────────────────────
+
+[agents.crabcode]
+description = "AI coding agent that works on Linear tickets via OpenCode"
+model = "crabcode"
+max_iterations = 64
+thinking = false
+members = ["coder", "reviewer"]
+mcps = ["linear"]
+
+[agents.coder]
+description = "Writes code, creates files, runs tests via OpenCode sessions"
+model = "crabcode"
+max_iterations = 32
+mcps = ["opencode"]
+
+[agents.reviewer]
+description = "Reviews code changes, creates PRs, manages git workflow"
+model = "crabcode"
+max_iterations = 16
+mcps = ["opencode"]
+
+# ── MCP Servers ──────────────────────────────────────────────────
+
+[mcps.opencode]
+url = "http://127.0.0.1:8081/mcp-root/"
+
+[mcps.linear]
+command = "npx"
+args = ["-y", "@jerhadf/linear-mcp-server"]
+env = { LINEAR_API_KEY = "${LINEAR_API_KEY}" }

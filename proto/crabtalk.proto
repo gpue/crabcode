@@ -1,0 +1,691 @@
+syntax = "proto3";
+
+package crabtalk.protocol;
+
+option swift_prefix = "CrabtalkProto_";
+
+// ── Client Messages ──────────────────────────────────────────────
+
+message ClientMessage {
+  oneof msg {
+    // Execution
+    SendMsg send = 1;
+    StreamMsg stream = 2;
+    ReplyToAsk reply_to_ask = 3;
+    // Conversation management
+    ListActiveConversationsMsg list_active_conversations = 4;
+    KillMsg kill = 5;
+    CompactMsg compact = 6;
+    ListConversationsMsg list_conversations = 7;
+    // Provider management
+    ListProvidersMsg list_providers = 8;
+    SetProviderMsg set_provider = 9;
+    DeleteProviderMsg delete_provider = 10;
+    SetActiveModelMsg set_active_model = 11;
+    ListProviderPresetsMsg list_provider_presets = 12;
+    // MCP management
+    ListMcpsMsg list_mcps = 13;
+    SetLocalMcpsMsg set_local_mcps = 14;
+    // Agent management
+    ListAgentsMsg list_agents = 15;
+    GetAgentMsg get_agent = 16;
+    CreateAgentMsg create_agent = 17;
+    UpdateAgentMsg update_agent = 18;
+    DeleteAgentMsg delete_agent = 19;
+    // Plugins
+    InstallPluginMsg install_plugin = 20;
+    UninstallPluginMsg uninstall_plugin = 21;
+    ListPluginsMsg list_plugins = 22;
+    // Skills
+    ListSkillsMsg list_skills = 23;
+    // Enable/disable
+    SetEnabledMsg set_enabled = 35;
+    // Models
+    ListModelsMsg list_models = 36;
+    // Plugin search
+    SearchPluginsMsg search_plugins = 37;
+    // Conversation history
+    GetConversationHistoryMsg get_conversation_history = 38;
+    // Delete conversation
+    DeleteConversationMsg delete_conversation = 39;
+    // Services
+    StartServiceMsg start_service = 24;
+    StopServiceMsg stop_service = 25;
+    ServiceLogsMsg service_logs = 26;
+    // Cron
+    CreateCronMsg create_cron = 27;
+    DeleteCronMsg delete_cron = 28;
+    ListCronsMsg list_crons = 29;
+    // Daemon lifecycle
+    Ping ping = 30;
+    GetConfig get_config = 31;
+    ReloadMsg reload = 32;
+    GetStats get_stats = 33;
+    SubscribeEvents subscribe_events = 34;
+    // Event bus
+    SubscribeEventMsg subscribe_event = 40;
+    UnsubscribeEventMsg unsubscribe_event = 41;
+    ListSubscriptionsMsg list_subscriptions = 42;
+    PublishEventMsg publish_event = 43;
+    // Steering
+    SteerSessionMsg steer_session = 44;
+    // Extension point for downstream products.
+    bytes extension = 100;
+  }
+}
+
+message SendMsg {
+  string agent = 1;
+  string content = 2;
+  optional string sender = 4;
+  optional string cwd = 5;
+  optional string guest = 6;
+  optional string tool_choice = 7;
+}
+
+message StreamMsg {
+  string agent = 1;
+  string content = 2;
+  optional string sender = 4;
+  optional string cwd = 5;
+  optional string guest = 6;
+  optional string tool_choice = 7;
+}
+
+message Ping {}
+message SubscribeEvents {}
+
+message ListActiveConversationsMsg {
+  string agent = 1;
+  string sender = 2;
+}
+message GetConfig {}
+message GetStats {}
+
+message KillMsg {
+  string agent = 1;
+  string sender = 2;
+}
+
+message ReloadMsg {}
+
+message CreateCronMsg {
+  string schedule = 1;
+  string skill = 2;
+  string agent = 3;
+  optional string quiet_start = 4;
+  optional string quiet_end = 5;
+  bool once = 6;
+  string sender = 7;
+}
+
+message DeleteCronMsg {
+  uint64 id = 1;
+}
+
+message ListCronsMsg {}
+
+// ── Event Bus ───────────────────────────────────────────────────
+
+message SubscribeEventMsg {
+  string source = 1;
+  string target_agent = 2;
+  bool once = 3;
+}
+
+message UnsubscribeEventMsg {
+  uint64 id = 1;
+}
+
+message ListSubscriptionsMsg {}
+
+message PublishEventMsg {
+  string source = 1;
+  string payload = 2;
+}
+
+message SubscriptionInfo {
+  uint64 id = 1;
+  string source = 2;
+  string target_agent = 3;
+  bool once = 4;
+}
+
+message SubscriptionList {
+  repeated SubscriptionInfo subscriptions = 1;
+}
+
+message CompactMsg {
+  string agent = 1;
+  string sender = 2;
+}
+
+message ListAgentsMsg {}
+
+message GetAgentMsg {
+  string name = 1;
+}
+
+message CreateAgentMsg {
+  string name = 1;
+  string config = 2;
+  string prompt = 3;
+}
+
+message UpdateAgentMsg {
+  string name = 1;
+  string config = 2;
+  string prompt = 3;
+}
+
+message DeleteAgentMsg {
+  string name = 1;
+}
+
+message ListProvidersMsg {}
+
+message InstallPluginMsg {
+  string plugin = 1;
+  string branch = 2;
+  string path = 3;
+  bool force = 4;
+}
+
+message UninstallPluginMsg {
+  string plugin = 1;
+}
+
+message ListPluginsMsg {}
+
+message ListSkillsMsg {}
+
+message ListModelsMsg {}
+
+message SearchPluginsMsg {
+  string query = 1;
+}
+
+message GetConversationHistoryMsg {
+  string file_path = 1;
+}
+
+message ConversationMessage {
+  string role = 1;
+  string content = 2;
+}
+
+message ConversationHistory {
+  repeated ConversationMessage messages = 1;
+  string title = 2;
+  string agent = 3;
+}
+
+message PluginInfo {
+  string name = 1;
+  string description = 2;
+  uint32 skill_count = 3;
+  uint32 mcp_count = 4;
+  bool installed = 5;
+  string repository = 6;
+}
+
+message PluginSearchList {
+  repeated PluginInfo plugins = 1;
+}
+
+enum ResourceKind {
+  RESOURCE_KIND_UNKNOWN = 0;
+  PROVIDER = 1;
+  MCP = 2;
+  SKILL = 3;
+  EXTERNAL_SOURCE = 4;
+}
+
+enum SourceKind {
+  SOURCE_KIND_UNKNOWN = 0;
+  LOCAL = 1;
+  PLUGIN = 2;
+  EXTERNAL = 3;
+}
+
+message SetEnabledMsg {
+  ResourceKind kind = 1;
+  string name = 2;
+  bool enabled = 3;
+}
+
+message ListConversationsMsg {
+  string agent = 1;
+  string sender = 2;
+}
+
+message ListMcpsMsg {}
+
+message SetLocalMcpsMsg {
+  repeated McpInfo mcps = 1;
+}
+
+message SetProviderMsg {
+  string name = 1;
+  string config = 2;
+}
+
+message DeleteProviderMsg {
+  string name = 1;
+}
+
+message SetActiveModelMsg {
+  string model = 1;
+}
+
+message ListProviderPresetsMsg {}
+
+message StartServiceMsg {
+  string name = 1;
+  bool force = 2;
+}
+
+message StopServiceMsg {
+  string name = 1;
+}
+
+message ServiceLogsMsg {
+  string name = 1;
+  uint32 lines = 2;
+}
+
+// ── Server Messages ──────────────────────────────────────────────
+
+message ServerMessage {
+  oneof msg {
+    // Common
+    ErrorMsg error = 1;
+    Pong pong = 2;
+    // Execution
+    SendResponse response = 3;
+    StreamEvent stream = 4;
+    // Active conversations
+    ActiveConversationList active_conversations = 5;
+    CompactResponse compact = 6;
+    ConversationList conversation_list = 7;
+    // Provider
+    ProviderList provider_list = 8;
+    ProviderPresetList provider_preset_list = 9;
+    // MCP
+    McpList mcp_list = 10;
+    // Agent
+    AgentInfo agent_info = 11;
+    AgentList agent_list = 12;
+    // Plugins
+    PluginEvent plugin_event = 13;
+    PluginList plugin_list = 14;
+    // Skills
+    SkillList skill_list = 15;
+    // Models
+    ModelList model_list = 22;
+    // Plugin search
+    PluginSearchList plugin_search_list = 23;
+    // Conversation history
+    ConversationHistory conversation_history = 24;
+    // Services
+    ServiceLogOutput service_log_output = 16;
+    // Cron
+    CronInfo cron_info = 17;
+    CronList cron_list = 18;
+    // Daemon lifecycle
+    ConfigMsg config = 19;
+    DaemonStats stats = 20;
+    AgentEventMsg agent_event = 21;
+    // Event bus
+    SubscriptionInfo subscription_info = 25;
+    SubscriptionList subscription_list = 26;
+    // Extension point for downstream products.
+    bytes extension = 100;
+  }
+}
+
+message DaemonStats {
+  uint64 uptime_secs = 1;
+  uint32 active_conversations = 2;
+  uint32 registered_agents = 3;
+  string active_model = 4;
+}
+
+message Pong {}
+
+message CompactResponse {
+  string summary = 1;
+}
+
+message TokenUsage {
+  uint32 prompt_tokens = 1;
+  uint32 completion_tokens = 2;
+  uint32 total_tokens = 3;
+  optional uint32 cache_hit_tokens = 4;
+  optional uint32 cache_miss_tokens = 5;
+  optional uint32 reasoning_tokens = 6;
+}
+
+message SendResponse {
+  string agent = 1;
+  string content = 2;
+  string provider = 4;
+  string model = 5;
+  optional TokenUsage usage = 6;
+}
+
+message ToolCallInfo {
+  string name = 1;
+  string arguments = 2;
+}
+
+message StreamEvent {
+  oneof event {
+    StreamStart start = 1;
+    StreamChunk chunk = 2;
+    StreamThinking thinking = 3;
+    ToolStartEvent tool_start = 4;
+    ToolResultEvent tool_result = 5;
+    ToolsCompleteEvent tools_complete = 6;
+    StreamEnd end = 7;
+    AskUserEvent ask_user = 8;
+    UserSteeredEvent user_steered = 9;
+    TextStartEvent text_start = 10;
+    TextEndEvent text_end = 11;
+    ThinkingStartEvent thinking_start = 12;
+    ThinkingEndEvent thinking_end = 13;
+  }
+}
+
+message TextStartEvent {
+  string agent = 1;
+}
+message TextEndEvent {
+  string agent = 1;
+}
+message ThinkingStartEvent {
+  string agent = 1;
+}
+message ThinkingEndEvent {
+  string agent = 1;
+}
+
+message StreamStart {
+  string agent = 1;
+}
+
+message StreamChunk {
+  string content = 1;
+}
+
+message StreamThinking {
+  string content = 1;
+}
+
+message ToolStartEvent {
+  repeated ToolCallInfo calls = 1;
+}
+
+message ToolResultEvent {
+  string call_id = 1;
+  string output = 2;
+  uint64 duration_ms = 3;
+  bool is_error = 4;
+}
+
+message ToolsCompleteEvent {}
+
+message StreamEnd {
+  string agent = 1;
+  string error = 2;
+  string provider = 3;
+  string model = 4;
+  optional TokenUsage usage = 5;
+}
+
+message AskUserEvent {
+  repeated AskQuestion questions = 1;
+}
+
+message AskQuestion {
+  string question = 1;
+  string header = 2;
+  repeated AskOption options = 3;
+  bool multi_select = 4;
+}
+
+message AskOption {
+  string label = 1;
+  string description = 2;
+}
+
+message ReplyToAsk {
+  string agent = 1;
+  string sender = 2;
+  string content = 3;
+}
+
+message SteerSessionMsg {
+  string agent = 1;
+  string sender = 2;
+  string content = 3;
+}
+
+message UserSteeredEvent {
+  string content = 1;
+}
+
+message ErrorMsg {
+  uint32 code = 1;
+  string message = 2;
+}
+
+message ActiveConversationInfo {
+  string agent = 1;
+  string sender = 2;
+  uint64 message_count = 3;
+  uint64 alive_secs = 4;
+  string title = 5;
+}
+
+enum AgentEventKind {
+  TEXT_DELTA = 0;
+  THINKING_DELTA = 1;
+  TOOL_START = 2;
+  TOOL_RESULT = 3;
+  TOOLS_COMPLETE = 4;
+  DONE = 5;
+  TEXT_START = 6;
+  TEXT_END = 7;
+  THINKING_START = 8;
+  THINKING_END = 9;
+}
+
+message AgentEventMsg {
+  string agent = 1;
+  string sender = 2;
+  AgentEventKind kind = 3;
+  string content = 4;
+  string timestamp = 5;
+  repeated ToolCallInfo tool_calls = 6;
+  string tool_output = 7;
+  bool tool_is_error = 8;
+}
+
+message ActiveConversationList {
+  repeated ActiveConversationInfo conversations = 1;
+}
+
+message ConfigMsg {
+  string config = 1;
+}
+
+message CronInfo {
+  uint64 id = 1;
+  string schedule = 2;
+  string skill = 3;
+  string agent = 4;
+  string quiet_start = 5;
+  string quiet_end = 6;
+  bool once = 7;
+  string sender = 8;
+}
+
+message CronList {
+  repeated CronInfo crons = 1;
+}
+
+message AgentInfo {
+  string name = 1;
+  string description = 2;
+  string config = 3;
+  optional string model = 4;
+  uint32 max_iterations = 5;
+  bool thinking = 6;
+  repeated string members = 7;
+  repeated string skills = 8;
+  repeated string mcps = 9;
+  optional uint32 compact_threshold = 10;
+  uint32 compact_tool_max_len = 11;
+}
+
+message AgentList {
+  repeated AgentInfo agents = 1;
+}
+
+message ProviderInfo {
+  string name = 1;
+  bool active = 2;
+  string config = 3;
+  bool enabled = 4;
+}
+
+message ProviderList {
+  repeated ProviderInfo providers = 1;
+}
+
+message PluginList {
+  repeated PluginInfo plugins = 1;
+}
+
+message ServiceLogOutput {
+  string content = 1;
+}
+
+message SkillInfo {
+  string name = 1;
+  bool enabled = 2;
+  string source = 3;
+  SourceKind source_kind = 4;
+}
+
+message SkillList {
+  repeated SkillInfo skills = 1;
+}
+
+message ModelInfo {
+  string name = 1;
+  string provider = 2;
+  bool active = 3;
+  bool enabled = 4;
+  ProviderKind kind = 5;
+}
+
+message ModelList {
+  repeated ModelInfo models = 1;
+}
+
+message DeleteConversationMsg {
+  string file_path = 1;
+}
+
+message ConversationInfo {
+  string agent = 1;
+  string sender = 2;
+  uint32 seq = 3;
+  string title = 4;
+  string file_path = 5;
+  uint64 message_count = 6;
+  uint64 alive_secs = 7;
+  string date = 8;
+}
+
+message ConversationList {
+  repeated ConversationInfo conversations = 1;
+}
+
+enum McpStatus {
+  MCP_STATUS_UNKNOWN = 0;
+  CONNECTED = 1;
+  DISCONNECTED = 2;
+  FAILED = 3;
+}
+
+message McpInfo {
+  string name = 1;
+  string command = 2;
+  repeated string args = 3;
+  map<string, string> env = 4;
+  string url = 5;
+  bool auth = 6;
+  string source = 7;
+  bool auto_restart = 8;
+  bool enabled = 9;
+  SourceKind source_kind = 10;
+  McpStatus status = 11;
+  string error = 12;
+  uint32 tool_count = 13;
+}
+
+message McpList {
+  repeated McpInfo mcps = 1;
+}
+
+enum ProviderKind {
+  PROVIDER_KIND_UNKNOWN = 0;
+  OPENAI = 1;
+  ANTHROPIC = 2;
+  GOOGLE = 3;
+  BEDROCK = 4;
+  OLLAMA = 5;
+  AZURE = 6;
+}
+
+message ProviderPresetInfo {
+  string name = 1;
+  ProviderKind kind = 2;
+  string base_url = 3;
+  string fixed_base_url = 4;
+  string default_model = 5;
+}
+
+message ProviderPresetList {
+  repeated ProviderPresetInfo presets = 1;
+}
+
+// ── Plugin Events ───────────────────────────────────────────────
+
+message PluginEvent {
+  oneof event {
+    PluginStep step = 1;
+    PluginWarning warning = 2;
+    PluginSetupOutput setup_output = 3;
+    PluginDone done = 4;
+  }
+}
+
+message PluginStep {
+  string message = 1;
+}
+
+message PluginWarning {
+  string message = 1;
+}
+
+message PluginSetupOutput {
+  string content = 1;
+}
+
+message PluginDone {
+  string error = 1;
+}

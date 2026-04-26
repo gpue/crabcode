@@ -1,0 +1,13 @@
+# CrabTalk daemon configuration for crabcode
+# Provider config — goes to ~/.crabtalk/config.toml
+
+[system.crab]
+model = "crabcode"
+compact_threshold = 100000
+
+[provider.azure-openai]
+kind = "azure"
+base_url = "http://127.0.0.1:18791"
+api_key = "${AZURE_OPENAI_API_KEY}"
+api_version = "2025-01-01-preview"
+models = ["crabcode"]

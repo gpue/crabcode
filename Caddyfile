@@ -1,0 +1,36 @@
+:8080 {
+	handle /health {
+		respond "ok" 200
+	}
+
+	handle_path /mcp/* {
+		reverse_proxy localhost:8081
+	}
+	handle_path /mcp {
+		reverse_proxy localhost:8081
+	}
+
+	handle_path /internal/* {
+		reverse_proxy localhost:8081
+	}
+
+	handle /events {
+		reverse_proxy localhost:8081
+	}
+
+	handle_path /api/* {
+		reverse_proxy localhost:4096
+	}
+
+	handle_path /assets/* {
+		root * /app/ui/assets
+		file_server
+	}
+
+	handle /* {
+		root * /app/ui
+		header Cache-Control "no-store"
+		try_files {path} /index.html
+		file_server
+	}
+}

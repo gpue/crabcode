@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": "allow",
+  "mcp": {
+    "linear": {
+      "type": "command",
+      "command": ["npx", "-y", "@jerhadf/linear-mcp-server"],
+      "enabled": true,
+      "timeout": 15000,
+      "env": {
+        "LINEAR_API_KEY": "${LINEAR_API_KEY}"
+      }
+    }
+  }
+}
