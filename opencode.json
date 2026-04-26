@@ -10,7 +10,7 @@
   "mcp": {
     "linear": {
       "type": "command",
-      "command": ["npx", "-y", "@jerhadf/linear-mcp-server"],
+      "command": "npx -y @jerhadf/linear-mcp-server",
       "enabled": true,
       "timeout": 15000,
       "env": {

@@ -2,20 +2,18 @@
  * copilot-proxy.mjs
  *
  * Local OpenAI-compatible proxy for GitHub Copilot's chat completions API.
- * Handles GitHub token → Copilot token exchange with automatic refresh.
+ * Uses a GitHub OAuth token (with `copilot` scope) directly as Bearer token
+ * against https://api.githubcopilot.com — no token exchange required.
  *
- * Token flow:
- *   1. Reads GitHub token from GH_TOKEN env var, or from `gh auth token`, or
- *      from OpenCode's persisted auth at ~/.local/share/opencode/auth.json
- *   2. Exchanges it for a short-lived Copilot API token via
- *      https://api.github.com/copilot_internal/v2/token
- *   3. Proxies requests to https://api.githubcopilot.com with that token
- *   4. Auto-refreshes the Copilot token before expiry
+ * Token resolution order:
+ *   1. GH_TOKEN / GITHUB_TOKEN env var
+ *   2. `gh auth token` CLI
+ *   3. OpenCode's persisted auth at $XDG_DATA_HOME/opencode/auth.json
  *
  * Environment variables:
- *   GH_TOKEN              - GitHub personal access token or OAuth token (optional if gh CLI is authed)
+ *   GH_TOKEN              - GitHub OAuth token with copilot scope
  *   COPILOT_PROXY_PORT    - Listen port (default: 18791)
- *   COPILOT_MODEL         - Default model to use (default: claude-sonnet-4)
+ *   COPILOT_MODEL         - Default model (default: claude-sonnet-4)
  */
 
 import http from "node:http";
@@ -26,11 +24,6 @@ import { Readable } from "node:stream";
 const LISTEN_PORT = Number(process.env.COPILOT_PROXY_PORT || 18791);
 const DEFAULT_MODEL = process.env.COPILOT_MODEL || "claude-sonnet-4";
 const COPILOT_API = "https://api.githubcopilot.com";
-const TOKEN_ENDPOINT = "https://api.github.com/copilot_internal/v2/token";
-
-// Cached Copilot token
-let copilotToken = null;
-let copilotTokenExpiry = 0;
 
 // ── GitHub token resolution ─────────────────────────────────────
 
@@ -54,58 +47,17 @@ function getGitHubToken() {
     if (p && existsSync(p)) {
       try {
         const auth = JSON.parse(readFileSync(p, "utf8"));
-        // OpenCode stores Copilot auth as { copilot: { user: ..., token: ... } } or similar
-        const token = auth?.copilot?.token || auth?.github?.token || auth?.token;
+        const token =
+          auth?.["github-copilot"]?.access ||
+          auth?.["github-copilot"]?.refresh ||
+          auth?.copilot?.token ||
+          auth?.github?.token;
         if (token) return token;
       } catch {}
     }
   }
 
   return null;
-}
-
-// ── Copilot token exchange ──────────────────────────────────────
-
-async function getCopilotToken() {
-  const now = Date.now();
-
-  // Return cached token if still valid (with 60s buffer)
-  if (copilotToken && copilotTokenExpiry > now + 60_000) {
-    return copilotToken;
-  }
-
-  const ghToken = getGitHubToken();
-  if (!ghToken) {
-    throw new Error(
-      "No GitHub token found. Set GH_TOKEN, run 'gh auth login', or authenticate OpenCode with /connect"
-    );
-  }
-
-  console.log("[copilot-proxy] Exchanging GitHub token for Copilot token...");
-
-  const res = await fetch(TOKEN_ENDPOINT, {
-    headers: {
-      Authorization: `token ${ghToken}`,
-      Accept: "application/json",
-      "Editor-Version": "opencode/1.0",
-      "Editor-Plugin-Version": "crabcode/1.0",
-    },
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Copilot token exchange failed (${res.status}): ${body}`);
-  }
-
-  const data = await res.json();
-  copilotToken = data.token;
-  // expires_at is Unix timestamp in seconds
-  copilotTokenExpiry = data.expires_at * 1000;
-
-  const expiresIn = Math.round((copilotTokenExpiry - now) / 1000 / 60);
-  console.log(`[copilot-proxy] Got Copilot token, expires in ${expiresIn}min`);
-
-  return copilotToken;
 }
 
 // ── Request helpers ─────────────────────────────────────────────
@@ -121,7 +73,6 @@ function normalizeBody(buffer) {
   try {
     const payload = JSON.parse(buffer.toString("utf8"));
     if (payload && typeof payload === "object") {
-      // Set default model if not specified
       if (!payload.model) payload.model = DEFAULT_MODEL;
       return Buffer.from(JSON.stringify(payload));
     }
@@ -144,17 +95,6 @@ async function fetchWithRetry(url, options, attempt = 0) {
     return fetchWithRetry(url, options, attempt + 1);
   }
 
-  // If 401, invalidate cached token and retry once
-  if (res.status === 401 && attempt === 0) {
-    try { await res.text(); } catch {}
-    console.log("[copilot-proxy] 401, refreshing token...");
-    copilotToken = null;
-    copilotTokenExpiry = 0;
-    const newToken = await getCopilotToken();
-    options.headers.Authorization = `Bearer ${newToken}`;
-    return fetchWithRetry(url, options, attempt + 1);
-  }
-
   return res;
 }
 
@@ -163,13 +103,20 @@ async function fetchWithRetry(url, options, attempt = 0) {
 const server = http.createServer(async (req, res) => {
   // Health check
   if (req.url === "/health") {
+    const token = getGitHubToken();
     res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", hasToken: !!copilotToken }));
+    res.end(JSON.stringify({ status: "ok", hasToken: !!token }));
     return;
   }
 
   try {
-    const token = await getCopilotToken();
+    const token = getGitHubToken();
+    if (!token) {
+      throw new Error(
+        "No GitHub token found. Set GH_TOKEN, run 'gh auth login', or authenticate OpenCode with /connect"
+      );
+    }
+
     const url = new URL(req.url || "/", "http://127.0.0.1");
 
     const rawBody = await readBody(req);
@@ -191,8 +138,8 @@ const server = http.createServer(async (req, res) => {
         Authorization: `Bearer ${token}`,
         "Content-Type": req.headers["content-type"] || "application/json",
         Accept: req.headers.accept || "application/json",
-        "Editor-Version": "opencode/1.0",
-        "Editor-Plugin-Version": "crabcode/1.0",
+        "Editor-Version": "vscode/1.90.0",
+        "Editor-Plugin-Version": "copilot/1.0.0",
         "Copilot-Integration-Id": "vscode-chat",
       },
       body,
@@ -218,13 +165,11 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(LISTEN_PORT, "127.0.0.1", () => {
+  const token = getGitHubToken();
   console.log(
-    `[copilot-proxy] listening on http://127.0.0.1:${LISTEN_PORT} → ${COPILOT_API} (model=${DEFAULT_MODEL})`
+    `[copilot-proxy] listening on http://127.0.0.1:${LISTEN_PORT} → ${COPILOT_API} (model=${DEFAULT_MODEL}, hasToken=${!!token})`
   );
-});
-
-// Pre-warm: try to get token on startup
-getCopilotToken().catch((err) => {
-  console.warn(`[copilot-proxy] Initial token fetch failed: ${err.message}`);
-  console.warn("[copilot-proxy] Will retry on first request. Ensure GH_TOKEN is set or run 'gh auth login'.");
+  if (!token) {
+    console.warn("[copilot-proxy] No GH token found yet. Set GH_TOKEN or run 'gh auth login'.");
+  }
 });

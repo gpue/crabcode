@@ -22,8 +22,8 @@ mkdir -p "${OPENCODE_XDG_ROOT}/config/opencode" \
          "${OPENCODE_XDG_ROOT}/data" \
          "${OPENCODE_XDG_ROOT}/cache"
 
-# Copy default config if not yet persisted
-if [ -f /home/crabcode/.config/opencode/opencode.json ] && [ ! -f "${OPENCODE_XDG_ROOT}/config/opencode/opencode.json" ]; then
+# Always overwrite config from image (ensures config updates propagate)
+if [ -f /home/crabcode/.config/opencode/opencode.json ]; then
     cp /home/crabcode/.config/opencode/opencode.json "${OPENCODE_XDG_ROOT}/config/opencode/opencode.json"
 fi
 

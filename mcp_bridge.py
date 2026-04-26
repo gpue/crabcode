@@ -28,7 +28,8 @@ OPENCODE_BASE = f"http://{OPENCODE_HOST}:{OPENCODE_PORT}"
 MCP_BRIDGE_PORT = int(os.environ.get("MCP_BRIDGE_PORT", "8081"))
 BASE_PATH = os.environ.get("BASE_PATH", "")
 WORKSPACE_DIR = Path(os.environ.get("WORKSPACE_DIR", "/workspace"))
-STATE_DIR = WORKSPACE_DIR / ".crabcode"
+# SQLite on Azure File Share fails (no proper locking) — use local ephemeral storage
+STATE_DIR = Path(os.environ.get("MCP_BRIDGE_STATE_DIR", "/tmp/crabcode-state"))
 DB_PATH = STATE_DIR / "state.db"
 
 OPENCODE_USERNAME = os.environ.get("OPENCODE_SERVER_USERNAME", "")
