@@ -10,10 +10,10 @@
   "mcp": {
     "linear": {
       "type": "local",
-      "command": "npx -y @jerhadf/linear-mcp-server",
+      "command": ["npx", "-y", "@jerhadf/linear-mcp-server"],
       "enabled": true,
       "timeout": 15000,
-      "env": {
+      "environment": {
         "LINEAR_API_KEY": "${LINEAR_API_KEY}"
       }
     }
