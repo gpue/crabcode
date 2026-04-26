@@ -10,9 +10,9 @@
   "mcp": {
     "linear": {
       "type": "local",
-      "command": ["linear-mcp-server"],
+      "command": ["/usr/bin/linear-mcp-server"],
       "enabled": true,
-      "timeout": 15000,
+      "timeout": 30000,
       "environment": {
         "LINEAR_API_KEY": "${LINEAR_API_KEY}"
       }

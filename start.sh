@@ -12,8 +12,10 @@ export OPENCODE_XDG_ROOT="${WORKSPACE_DIR}/.opencode"
 export PERSISTENT_HOME="${WORKSPACE_DIR}/.home/crabcode"
 export XDG_CONFIG_HOME="${OPENCODE_XDG_ROOT}/config"
 # SQLite doesn't work on Azure File Share — put data/cache on local ephemeral storage
+# But we sync from persistent storage on startup and back on shutdown to preserve sessions
 export XDG_DATA_HOME="/tmp/opencode-data"
 export XDG_CACHE_HOME="/tmp/opencode-cache"
+PERSISTENT_DATA="${WORKSPACE_DIR}/.opencode/data"
 
 # ── Persistent home setup ────────────────────────────────────────
 mkdir -p "${PERSISTENT_HOME}" "${PERSISTENT_HOME}/.config" \
@@ -21,12 +23,22 @@ mkdir -p "${PERSISTENT_HOME}" "${PERSISTENT_HOME}/.config" \
 
 mkdir -p "${OPENCODE_XDG_ROOT}/config/opencode" \
          "${XDG_DATA_HOME}" \
-         "${XDG_CACHE_HOME}"
+         "${XDG_CACHE_HOME}" \
+         "${PERSISTENT_DATA}"
+
+# Restore session data from persistent storage (SQLite runs on local tmpfs)
+if [ -d "${PERSISTENT_DATA}/opencode" ]; then
+    cp -a "${PERSISTENT_DATA}/opencode" "${XDG_DATA_HOME}/" 2>/dev/null || true
+    echo "[opencode] Restored session data from persistent storage"
+fi
 
 # Always overwrite config from image (ensures config updates propagate)
 # Expand env vars (e.g. LINEAR_API_KEY) in the config
-if [ -f /home/crabcode/.config/opencode/opencode.json ]; then
-    envsubst '$LINEAR_API_KEY' < /home/crabcode/.config/opencode/opencode.json > "${OPENCODE_XDG_ROOT}/config/opencode/opencode.json"
+# Source from /app/opencode.json (not /home/crabcode/.config which gets symlinked)
+if [ -f /app/opencode.json ]; then
+    envsubst '$LINEAR_API_KEY' < /app/opencode.json > "${OPENCODE_XDG_ROOT}/config/opencode/opencode.json"
+    echo "[opencode] Config expanded. LINEAR_API_KEY length: ${#LINEAR_API_KEY}"
+    echo "[opencode] Config written to: ${OPENCODE_XDG_ROOT}/config/opencode/opencode.json"
 fi
 
 # Persist git config
@@ -76,10 +88,16 @@ echo "  Home            : ${HOME}"
 echo "===================="
 
 # ── Trap for cleanup ─────────────────────────────────────────────
+sync_session_data() {
+    if [ -d "${XDG_DATA_HOME}/opencode" ]; then
+        cp -a "${XDG_DATA_HOME}/opencode" "${PERSISTENT_DATA}/" 2>/dev/null || true
+    fi
+}
 cleanup() {
     echo "Shutting down..."
+    sync_session_data
     kill "$TAILSCALE_PID" "$MCP_PID" "$OPENCODE_PID" "$CRABTALK_PID" \
-         "$COPILOT_PROXY_PID" "$TELEGRAM_PID" "$LINEAR_AGENT_PID" 2>/dev/null || true
+         "$COPILOT_PROXY_PID" "$TELEGRAM_PID" "$LINEAR_AGENT_PID" "$SYNC_PID" 2>/dev/null || true
     wait 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
@@ -151,20 +169,21 @@ python3 /app/mcp_bridge.py &
 MCP_PID=$!
 
 # ── OpenCode web UI ──────────────────────────────────────────────
-# Run from the first available repo in /workspace, or /workspace itself
-OPENCODE_CWD="${WORKSPACE_DIR}"
-for d in "${WORKSPACE_DIR}"/*/; do
-    if [ -d "${d}.git" ]; then
-        OPENCODE_CWD="${d}"
-        break
-    fi
-done
-echo "[opencode] Starting in ${OPENCODE_CWD}"
-(cd "${OPENCODE_CWD}" && env opencode web \
+# Run from /workspace so all projects are accessible via "Open project"
+# Initialize /workspace as a git repo if needed (OpenCode requires a git context)
+if [ ! -d "${WORKSPACE_DIR}/.git" ]; then
+    (cd "${WORKSPACE_DIR}" && git init -b main && git commit --allow-empty -m "workspace root" 2>/dev/null) || true
+fi
+echo "[opencode] Starting in ${WORKSPACE_DIR}"
+(cd "${WORKSPACE_DIR}" && env opencode web \
     --port "${OPENCODE_PORT}" \
     --hostname 127.0.0.1 \
     --cors "*") &
 OPENCODE_PID=$!
+
+# ── Periodic session data sync (every 5 minutes) ────────────────
+(while true; do sleep 300; sync_session_data; done) &
+SYNC_PID=$!
 
 sleep 2
 

@@ -96,7 +96,7 @@ COPY --chown=crabcode:crabcode crabtalk/agents/ /home/crabcode/.crabtalk/local/a
 COPY --chown=crabcode:crabcode proto/ /app/proto/
 
 # ── Application files ──────────────────────────────────────────────
-COPY --chown=crabcode:crabcode opencode.json /home/crabcode/.config/opencode/opencode.json
+COPY --chown=crabcode:crabcode opencode.json /app/opencode.json
 COPY --chown=crabcode:crabcode mcp_bridge.py /app/mcp_bridge.py
 COPY --chown=crabcode:crabcode scripts/ /app/scripts/
 COPY --chown=crabcode:crabcode start.sh /app/start.sh
