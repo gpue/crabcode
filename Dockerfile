@@ -22,7 +22,7 @@ RUN xcaddy build v${CADDY_VERSION} \
 FROM debian:bookworm-slim
 
 # ── Versions ────────────────────────────────────────────────────────
-ARG OPENCODE_VERSION=1.2.27
+ARG OPENCODE_VERSION=1.3.17
 ARG CRABTALK_VERSION=0.0.22
 ARG TAILSCALE_VERSION=1.82.0
 
