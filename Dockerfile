@@ -70,8 +70,7 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages \
     -r /tmp/requirements.txt && rm /tmp/requirements.txt
 
 # ── Install Linear MCP server ───────────────────────────────────────
-RUN npm install -g @anthropic/linear-mcp-server 2>/dev/null || \
-    npm install -g mcp-linear 2>/dev/null || true
+RUN npm install -g @jerhadf/linear-mcp-server
 
 # ── Create non-root user ────────────────────────────────────────────
 RUN groupadd -r crabcode && useradd -r -g crabcode -m -d /home/crabcode crabcode
