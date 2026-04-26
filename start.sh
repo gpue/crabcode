@@ -11,16 +11,17 @@ export WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 export OPENCODE_XDG_ROOT="${WORKSPACE_DIR}/.opencode"
 export PERSISTENT_HOME="${WORKSPACE_DIR}/.home/crabcode"
 export XDG_CONFIG_HOME="${OPENCODE_XDG_ROOT}/config"
-export XDG_DATA_HOME="${OPENCODE_XDG_ROOT}/data"
-export XDG_CACHE_HOME="${OPENCODE_XDG_ROOT}/cache"
+# SQLite doesn't work on Azure File Share — put data/cache on local ephemeral storage
+export XDG_DATA_HOME="/tmp/opencode-data"
+export XDG_CACHE_HOME="/tmp/opencode-cache"
 
 # ── Persistent home setup ────────────────────────────────────────
 mkdir -p "${PERSISTENT_HOME}" "${PERSISTENT_HOME}/.config" \
          "${PERSISTENT_HOME}/.cache" "${PERSISTENT_HOME}/.local/share"
 
 mkdir -p "${OPENCODE_XDG_ROOT}/config/opencode" \
-         "${OPENCODE_XDG_ROOT}/data" \
-         "${OPENCODE_XDG_ROOT}/cache"
+         "${XDG_DATA_HOME}" \
+         "${XDG_CACHE_HOME}"
 
 # Always overwrite config from image (ensures config updates propagate)
 if [ -f /home/crabcode/.config/opencode/opencode.json ]; then
