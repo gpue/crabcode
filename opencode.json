@@ -2,9 +2,23 @@
   "$schema": "https://opencode.ai/config.json",
   "permission": "allow",
   "provider": {
-    "copilot": {
-      "id": "copilot",
-      "name": "GitHub Copilot"
+    "copilot-proxy": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "GitHub Copilot (proxy)",
+      "options": {
+        "baseURL": "http://127.0.0.1:18791/v1"
+      },
+      "models": {
+        "claude-sonnet-4": {
+          "name": "Claude Sonnet 4 (Copilot)"
+        },
+        "gpt-4o": {
+          "name": "GPT-4o (Copilot)"
+        },
+        "o3-mini": {
+          "name": "o3-mini (Copilot)"
+        }
+      }
     }
   },
   "mcp": {
