@@ -73,9 +73,6 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages \
 RUN curl -fsSL https://aka.ms/InstallAzureCLIDeb | bash \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Install Linear MCP server ───────────────────────────────────────
-# Linear MCP server — the npm package is "linear-mcp-server" (by jerhadf)
-RUN npm install -g linear-mcp-server
 
 # ── Create non-root user ────────────────────────────────────────────
 RUN groupadd -r crabcode && useradd -r -g crabcode -m -d /home/crabcode crabcode

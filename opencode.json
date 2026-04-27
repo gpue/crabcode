@@ -24,7 +24,7 @@
   "mcp": {
     "linear": {
       "type": "local",
-      "command": ["/usr/bin/linear-mcp-server"],
+      "command": ["node", "/app/scripts/linear-mcp.mjs"],
       "enabled": true,
       "timeout": 60000,
       "environment": {
