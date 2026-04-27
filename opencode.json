@@ -26,7 +26,7 @@
       "type": "local",
       "command": ["/usr/bin/linear-mcp-server"],
       "enabled": true,
-      "timeout": 30000,
+      "timeout": 60000,
       "environment": {
         "LINEAR_API_KEY": "{env:LINEAR_API_KEY}"
       }
