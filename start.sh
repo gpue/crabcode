@@ -55,13 +55,19 @@ fi
 if [ -f /home/crabcode/.git-credentials ] && [ ! -f "${PERSISTENT_HOME}/.git-credentials" ]; then
     cp /home/crabcode/.git-credentials "${PERSISTENT_HOME}/.git-credentials"
 fi
-if [ -d /home/crabcode/.config/gh ] && [ ! -d "${PERSISTENT_HOME}/.config/gh" ]; then
+  if [ -d /home/crabcode/.config/gh ] && [ ! -d "${PERSISTENT_HOME}/.config/gh" ]; then
     mkdir -p "${PERSISTENT_HOME}/.config"
     cp -R /home/crabcode/.config/gh "${PERSISTENT_HOME}/.config/gh"
 fi
 
+# Persist Azure CLI state
+if [ -d /home/crabcode/.azure ] && [ ! -d "${PERSISTENT_HOME}/.azure" ]; then
+    cp -R /home/crabcode/.azure "${PERSISTENT_HOME}/.azure"
+fi
+
 # Symlink persistent dirs
 ln -sfn "${PERSISTENT_HOME}/.config" /home/crabcode/.config
+ln -sfn "${PERSISTENT_HOME}/.azure" /home/crabcode/.azure
 ln -sfn "${PERSISTENT_HOME}/.cache" /home/crabcode/.cache
 ln -sfn "${PERSISTENT_HOME}/.local" /home/crabcode/.local
 
