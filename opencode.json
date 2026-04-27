@@ -10,11 +10,11 @@
   "mcp": {
     "linear": {
       "type": "local",
-      "command": ["sh", "-c", "echo MCP_LINEAR_START >&2 && exec /usr/bin/linear-mcp-server"],
+      "command": ["/usr/bin/linear-mcp-server"],
       "enabled": true,
       "timeout": 30000,
       "environment": {
-        "LINEAR_API_KEY": "${LINEAR_API_KEY}"
+        "LINEAR_API_KEY": "{env:LINEAR_API_KEY}"
       }
     }
   }

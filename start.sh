@@ -33,23 +33,19 @@ if [ -d "${PERSISTENT_DATA}/opencode" ]; then
 fi
 
 # Always overwrite config from image (ensures config updates propagate)
-# Expand env vars (e.g. LINEAR_API_KEY) in the config
-# Source from /app/opencode.json (not /home/crabcode/.config which gets symlinked)
-echo "[opencode] Checking /app/opencode.json: $(ls -la /app/opencode.json 2>&1)" >&2
+# OpenCode natively supports {env:VAR} syntax — no envsubst needed
 if [ -f /app/opencode.json ]; then
-    envsubst '$LINEAR_API_KEY' < /app/opencode.json > "${OPENCODE_XDG_ROOT}/config/opencode/opencode.json"
-    echo "[opencode] Config expanded to ${OPENCODE_XDG_ROOT}/config/opencode/opencode.json" >&2
-    cat "${OPENCODE_XDG_ROOT}/config/opencode/opencode.json" >&2
-    # Also place in every git project as fallback
+    cp /app/opencode.json "${OPENCODE_XDG_ROOT}/config/opencode/opencode.json"
+    echo "[opencode] Config installed to ${OPENCODE_XDG_ROOT}/config/opencode/opencode.json" >&2
+    # Also copy to /workspace root and git projects (project-level config has highest precedence)
+    cp /app/opencode.json "${WORKSPACE_DIR}/opencode.json" 2>/dev/null || true
     for d in "${WORKSPACE_DIR}"/*/; do
         if [ -d "${d}.git" ]; then
-            cp "${OPENCODE_XDG_ROOT}/config/opencode/opencode.json" "${d}opencode.json" 2>/dev/null || true
-            echo "[opencode] Config copied to ${d}opencode.json" >&2
+            cp /app/opencode.json "${d}opencode.json" 2>/dev/null || true
         fi
     done
 else
     echo "[opencode] ERROR: /app/opencode.json not found!" >&2
-    ls -la /app/ >&2 || true
 fi
 
 # Persist git config
