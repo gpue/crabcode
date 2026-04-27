@@ -40,9 +40,32 @@ async function gql(query, variables = {}) {
   return json.data;
 }
 
+// ── Team resolution (name/key → UUID) ────────────────────────────────────────
+
+const teamCache = new Map(); // key/name → uuid
+
+async function resolveTeamId(teamId) {
+  if (!teamId) return teamId;
+  // Already a UUID
+  if (/^[0-9a-f-]{36}$/.test(teamId)) return teamId;
+  // Check cache
+  if (teamCache.has(teamId.toLowerCase())) return teamCache.get(teamId.toLowerCase());
+  // Fetch all teams and populate cache
+  const data = await gql(`{ teams { nodes { id name key } } }`);
+  for (const t of data.teams.nodes) {
+    teamCache.set(t.key.toLowerCase(), t.id);
+    teamCache.set(t.name.toLowerCase(), t.id);
+    teamCache.set(t.id.toLowerCase(), t.id);
+  }
+  const resolved = teamCache.get(teamId.toLowerCase());
+  if (!resolved) throw new Error(`Team not found: "${teamId}". Available teams: ${[...new Set(data.teams.nodes.map(t => `${t.name} (${t.key})`))].join(", ")}`);
+  return resolved;
+}
+
 // ── Tool implementations ──────────────────────────────────────────────────────
 
 async function createIssue({ title, teamId, description, priority, status }) {
+  teamId = await resolveTeamId(teamId);
   const data = await gql(
     `mutation CreateIssue($input: IssueCreateInput!) {
       issueCreate(input: $input) { success issue { id identifier url title } }
@@ -81,6 +104,7 @@ async function searchIssues({
   includeArchived,
   limit = 10,
 }) {
+  teamId = await resolveTeamId(teamId);
   const filter = {};
   if (teamId) filter.team = { id: { eq: teamId } };
   if (status) filter.state = { name: { eq: status } };
