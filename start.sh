@@ -188,8 +188,21 @@ echo "[opencode] Starting in ${WORKSPACE_DIR}"
     --cors "*") &
 OPENCODE_PID=$!
 
-# ── Periodic session data sync (every 5 minutes) ────────────────
-(while true; do sleep 300; sync_session_data; done) &
+# ── Periodic maintenance (every 5 minutes) ──────────────────────
+# Syncs session data and copies opencode.json to any new git repos
+(while true; do
+    sleep 300
+    sync_session_data
+    # Copy opencode.json to any new git repos that appeared since boot
+    if [ -f /app/opencode.json ]; then
+        for d in "${WORKSPACE_DIR}"/*/; do
+            if [ -d "${d}.git" ] && [ ! -f "${d}opencode.json" ]; then
+                cp /app/opencode.json "${d}opencode.json" 2>/dev/null || true
+                echo "[opencode] Copied config to ${d}"
+            fi
+        done
+    fi
+done) &
 SYNC_PID=$!
 
 sleep 2
