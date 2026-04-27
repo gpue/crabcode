@@ -69,6 +69,10 @@ COPY requirements.txt /tmp/requirements.txt
 RUN python3 -m pip install --no-cache-dir --break-system-packages \
     -r /tmp/requirements.txt && rm /tmp/requirements.txt
 
+# ── Azure CLI ───────────────────────────────────────────────────────
+RUN curl -fsSL https://aka.ms/InstallAzureCLIDeb | bash \
+    && rm -rf /var/lib/apt/lists/*
+
 # ── Install Linear MCP server ───────────────────────────────────────
 # Linear MCP server — the npm package is "linear-mcp-server" (by jerhadf)
 RUN npm install -g linear-mcp-server
