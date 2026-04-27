@@ -10,7 +10,7 @@
   "mcp": {
     "linear": {
       "type": "local",
-      "command": ["/usr/bin/linear-mcp-server"],
+      "command": ["sh", "-c", "echo MCP_LINEAR_START >&2 && exec /usr/bin/linear-mcp-server"],
       "enabled": true,
       "timeout": 30000,
       "environment": {

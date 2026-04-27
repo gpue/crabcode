@@ -37,8 +37,19 @@ fi
 # Source from /app/opencode.json (not /home/crabcode/.config which gets symlinked)
 if [ -f /app/opencode.json ]; then
     envsubst '$LINEAR_API_KEY' < /app/opencode.json > "${OPENCODE_XDG_ROOT}/config/opencode/opencode.json"
-    echo "[opencode] Config expanded. LINEAR_API_KEY length: ${#LINEAR_API_KEY}"
-    echo "[opencode] Config written to: ${OPENCODE_XDG_ROOT}/config/opencode/opencode.json"
+    echo "[opencode] Config expanded to ${OPENCODE_XDG_ROOT}/config/opencode/opencode.json"
+    # Verify the expansion worked (show first line of LINEAR_API_KEY value, masked)
+    KEY_IN_CONFIG=$(grep -o '"LINEAR_API_KEY": "[^"]*"' "${OPENCODE_XDG_ROOT}/config/opencode/opencode.json" || echo "not found")
+    echo "[opencode] LINEAR_API_KEY in config: ${KEY_IN_CONFIG:0:30}..."
+    # Also place in every git project as fallback
+    for d in "${WORKSPACE_DIR}"/*/; do
+        if [ -d "${d}.git" ]; then
+            cp "${OPENCODE_XDG_ROOT}/config/opencode/opencode.json" "${d}opencode.json" 2>/dev/null || true
+        fi
+    done
+else
+    echo "[opencode] ERROR: /app/opencode.json not found!"
+    ls -la /app/ || true
 fi
 
 # Persist git config
