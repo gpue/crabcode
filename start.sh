@@ -180,7 +180,8 @@ trap cleanup EXIT INT TERM
 mkdir -p "${WORKSPACE_DIR}/.tailscale" /tmp/tailscale
 tailscaled --state="${WORKSPACE_DIR}/.tailscale/tailscaled.state" \
            --socket=/tmp/tailscale/tailscaled.sock \
-           --tun=userspace-networking &
+           --tun=userspace-networking \
+           --socks5-server=localhost:1055 &
 TAILSCALE_PID=$!
 sleep 2
 
