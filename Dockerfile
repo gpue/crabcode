@@ -25,6 +25,7 @@ FROM debian:bookworm-slim
 ARG OPENCODE_VERSION=1.3.17
 ARG CRABTALK_VERSION=0.0.22
 ARG TAILSCALE_VERSION=1.82.0
+ARG GO_VERSION=1.24.2
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -32,7 +33,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # ── System packages + Python 3 + git + Node.js + dev tools ─────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl gh gnupg git python3 python3-pip python3-venv \
+        ca-certificates curl gh gnupg git make python3 python3-pip python3-venv \
         openssh-client netcat-openbsd iputils-ping dnsutils traceroute \
         gettext-base jq ripgrep iptables iproute2 \
     && rm -rf /var/lib/apt/lists/*
@@ -71,6 +72,30 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages \
 
 # ── Azure CLI ───────────────────────────────────────────────────────
 RUN curl -fsSL https://aka.ms/InstallAzureCLIDeb | bash \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── kubectl ─────────────────────────────────────────────────────────
+RUN curl -fsSL "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
+    -o /usr/local/bin/kubectl \
+    && chmod +x /usr/local/bin/kubectl
+
+# ── Helm ────────────────────────────────────────────────────────────
+RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+# ── zip ─────────────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends zip \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Go ──────────────────────────────────────────────────────────────
+RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
+    | tar -xz -C /usr/local
+ENV PATH="/usr/local/go/bin:${PATH}"
+
+# ── Docker CLI (no daemon) ───────────────────────────────────────────
+RUN curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker.gpg \
+    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" \
+        > /etc/apt/sources.list.d/docker.list \
+    && apt-get update && apt-get install -y --no-install-recommends docker-ce-cli \
     && rm -rf /var/lib/apt/lists/*
 
 

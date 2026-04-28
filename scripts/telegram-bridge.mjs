@@ -14,7 +14,7 @@
 import net from "node:net";
 import { crabtalk } from "../proto/crabtalk.js";
 
-const { ClientMessage, ServerMessage } = crabtalk.protocol;
+const { ClientMessage, ServerMessage, AgentEventKind } = crabtalk.protocol;
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 if (!BOT_TOKEN || BOT_TOKEN === "CHANGE_ME") {
@@ -29,7 +29,10 @@ const CT_PORT = parseInt(process.env.CRABTALK_PORT || "6688", 10);
 const API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
 // Per-chat session IDs (CrabTalk sessions keyed by Telegram chat ID)
-const chatSessions = new Map();
+const chatSessions = new Map(); // chatId -> sessionId (string)
+
+// Active event subscriptions keyed by Telegram chat ID
+const eventSubscriptions = new Map(); // chatId -> { subscriptionId, socket }
 
 let offset = 0;
 let running = true;
@@ -95,21 +98,46 @@ async function sendTyping(chatId) {
   }).catch(() => {});
 }
 
+// ── CrabTalk helpers ──────────────────────────────────────────────
+
+/** Encode a ClientMessage as a length-prefixed buffer ready to write to a socket. */
+function encodeMessage(message) {
+  const encoded = ClientMessage.encode(message).finish();
+  const lengthBuf = Buffer.alloc(4);
+  lengthBuf.writeUInt32BE(encoded.length, 0);
+  return Buffer.concat([lengthBuf, encoded]);
+}
+
 // ── CrabTalk TCP communication ────────────────────────────────────
 
-function sendToCrabTalk(message) {
+/**
+ * Send a SendMsg to CrabTalk followed by a SubscribeEventMsg, then stream
+ * AgentEventMsg responses back via onEvent(AgentEventMsg).
+ *
+ * Resolves when AgentEventKind.DONE is received or the socket closes.
+ * Rejects on connection/protocol errors.
+ *
+ * Returns a cleanup function that unsubscribes and closes the socket.
+ */
+function sendToCrabTalkStreaming(sendMessage, subscribeMessage, onEvent, onSubscription) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(CT_PORT, CT_HOST);
-    const encoded = ClientMessage.encode(message).finish();
-    const lengthBuf = Buffer.alloc(4);
-    lengthBuf.writeUInt32BE(encoded.length, 0);
 
     let responseBuf = Buffer.alloc(0);
-    let fullText = "";
     let done = false;
 
+    const finish = (err) => {
+      if (done) return;
+      done = true;
+      socket.destroy();
+      if (err) reject(err);
+      else resolve();
+    };
+
     socket.on("connect", () => {
-      socket.write(Buffer.concat([lengthBuf, encoded]));
+      // Send SendMsg then SubscribeEventMsg on the same connection
+      socket.write(encodeMessage(sendMessage));
+      socket.write(encodeMessage(subscribeMessage));
     });
 
     socket.on("data", (chunk) => {
@@ -126,23 +154,35 @@ function sendToCrabTalk(message) {
         try {
           const serverMsg = ServerMessage.decode(msgBuf);
 
-          if (serverMsg.streamMsg) {
-            const stream = serverMsg.streamMsg;
-            if (stream.delta) {
-              fullText += stream.delta;
+          // Subscription confirmation — capture the subscription ID
+          if (serverMsg.subscriptionInfo) {
+            onSubscription(serverMsg.subscriptionInfo.id, socket);
+          }
+
+          // Primary path: AgentEventMsg stream
+          if (serverMsg.agentEvent) {
+            const event = serverMsg.agentEvent;
+            onEvent(event);
+            if (event.kind === AgentEventKind.DONE) {
+              finish();
+              return;
             }
-            if (stream.final) {
-              done = true;
-              socket.destroy();
-              resolve(fullText.trim() || stream.final);
+          }
+
+          // Fallback: StreamEvent (chunk/end) for backward compatibility
+          if (serverMsg.stream) {
+            const streamEvent = serverMsg.stream;
+            if (streamEvent.chunk) {
+              onEvent({ kind: AgentEventKind.TEXT_DELTA, content: streamEvent.chunk.content || "" });
+            }
+            if (streamEvent.end) {
+              finish();
               return;
             }
           }
 
           if (serverMsg.error) {
-            done = true;
-            socket.destroy();
-            reject(new Error(serverMsg.error.message || "CrabTalk error"));
+            finish(new Error(serverMsg.error.message || "CrabTalk error"));
             return;
           }
         } catch (e) {
@@ -152,22 +192,40 @@ function sendToCrabTalk(message) {
     });
 
     socket.on("error", (err) => {
-      if (!done) reject(err);
+      finish(err);
     });
 
     socket.on("close", () => {
-      if (!done) resolve(fullText.trim() || "No response from agent.");
+      finish();
     });
 
     // Timeout after 2 minutes
-    setTimeout(() => {
-      if (!done) {
-        done = true;
-        socket.destroy();
-        resolve(fullText.trim() || "Response timed out.");
-      }
-    }, 120000);
+    setTimeout(() => finish(), 120000);
   });
+}
+
+/**
+ * If there is an active event subscription for chatId, send UnsubscribeEventMsg
+ * and destroy the socket, then remove from the map.
+ */
+function clearSubscription(chatId) {
+  const sub = eventSubscriptions.get(chatId);
+  if (!sub) return;
+  eventSubscriptions.delete(chatId);
+
+  const { subscriptionId, socket } = sub;
+  if (subscriptionId && !socket.destroyed) {
+    try {
+      socket.write(
+        encodeMessage(
+          ClientMessage.create({ unsubscribeEvent: { id: subscriptionId } })
+        )
+      );
+    } catch (_) {
+      // best-effort
+    }
+  }
+  socket.destroy();
 }
 
 // ── Handle incoming message ──────────────────────────────────────
@@ -178,20 +236,53 @@ async function handleMessage(chatId, text) {
   const typingInterval = setInterval(() => sendTyping(chatId), 4000);
 
   try {
-    // Build a SendMsg for CrabTalk
     const sessionId = chatSessions.get(chatId) || `telegram-${chatId}`;
-    const message = ClientMessage.create({
-      sendMsg: {
+    chatSessions.set(chatId, sessionId);
+
+    const sendMsg = ClientMessage.create({
+      send: {
         content: text,
-        sessionId,
+        sender: sessionId,
         agent: "crabcode",
       },
     });
 
-    const response = await sendToCrabTalk(message);
+    const subscribeMsg = ClientMessage.create({
+      subscribeEvent: {
+        source: "crabcode",
+        target_agent: "telegram",
+        once: false,
+      },
+    });
+
+    let accumulatedText = "";
+
+    await sendToCrabTalkStreaming(
+      sendMsg,
+      subscribeMsg,
+      (event) => {
+        switch (event.kind) {
+          case AgentEventKind.TEXT_DELTA:
+            accumulatedText += event.content || "";
+            break;
+          // THINKING_*, TOOL_*, DONE handled implicitly (DONE triggers finish)
+        }
+      },
+      (subscriptionId, socket) => {
+        // Store subscription so /start can cancel it
+        eventSubscriptions.set(chatId, { subscriptionId, socket });
+        log("debug", "event subscription registered", { chatId, subscriptionId });
+      }
+    );
+
+    // Subscription is done after DONE — clean up the map entry
+    eventSubscriptions.delete(chatId);
+
+    const response = accumulatedText.trim() || "No response from agent.";
     await sendMessage(chatId, response);
   } catch (err) {
     log("error", "CrabTalk request failed", { error: err.message });
+    clearSubscription(chatId);
     await sendMessage(chatId, "Sorry, the agent is currently unavailable.");
   } finally {
     clearInterval(typingInterval);
@@ -224,6 +315,9 @@ async function main() {
 
       if (!cleanText || cleanText === "/start") {
         if (cleanText === "/start") {
+          // Clear session and any active event subscription
+          chatSessions.delete(chatId);
+          clearSubscription(chatId);
           await sendMessage(
             chatId,
             "Hello! I'm CrabCode, your AI coding agent. Send me a ticket ID or a coding task and I'll get to work."
