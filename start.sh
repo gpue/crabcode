@@ -227,7 +227,7 @@ echo "[tailscale] Status: $(tailscale --socket=/tmp/tailscale/tailscaled.sock st
 # On failure, Caddy still starts but only serves HTTP on :80.
 TS_CERT_DIR=/tmp/tailscale-cert
 mkdir -p "${TS_CERT_DIR}"
-if tailscale --socket=/tmp/tailscale/tailscaled.sock cert \
+if timeout 15 tailscale --socket=/tmp/tailscale/tailscaled.sock cert \
         --cert-file "${TS_CERT_DIR}/server.crt" \
         --key-file  "${TS_CERT_DIR}/server.key" \
         "${TS_HOSTNAME:-crabcode}" 2>/dev/null; then
