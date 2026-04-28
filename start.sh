@@ -150,7 +150,7 @@ envsubst < /home/crabcode/.crabtalk/config.toml > /tmp/config.toml && mv /tmp/co
 envsubst < /home/crabcode/.crabtalk/local/CrabTalk.toml > /tmp/CrabTalk.toml && mv /tmp/CrabTalk.toml /home/crabcode/.crabtalk/local/CrabTalk.toml
 
 echo "=== crabcode ==="
-echo "  Caddy proxy     : port 80 (Tailscale only)"
+echo "  Caddy proxy     : port 443 HTTPS / port 80 HTTP→HTTPS (Tailscale only)"
 echo "  OpenCode web UI : port ${OPENCODE_PORT} (internal)"
 echo "  MCP bridge      : port ${MCP_BRIDGE_PORT} (internal)"
 echo "  CrabTalk        : port 6688 (internal)"
@@ -220,6 +220,23 @@ tailscale --socket=/tmp/tailscale/tailscaled.sock up \
     2>/dev/null || echo "[tailscale] Already authenticated or no auth key"
 
 echo "[tailscale] Status: $(tailscale --socket=/tmp/tailscale/tailscaled.sock status --self 2>/dev/null | head -1)"
+
+# ── Fetch Tailscale TLS certificate ─────────────────────────────
+# Requires "HTTPS certificates" to be enabled in the Tailscale admin console
+# (tailnet DNS settings). On success, Caddy will serve HTTPS on :443.
+# On failure, Caddy still starts but only serves HTTP on :80.
+TS_CERT_DIR=/tmp/tailscale-cert
+mkdir -p "${TS_CERT_DIR}"
+if tailscale --socket=/tmp/tailscale/tailscaled.sock cert \
+        --cert-file "${TS_CERT_DIR}/server.crt" \
+        --key-file  "${TS_CERT_DIR}/server.key" \
+        "${TS_HOSTNAME:-crabcode}" 2>/dev/null; then
+    echo "[tailscale] TLS cert provisioned — Caddy will serve HTTPS on :443"
+else
+    echo "[tailscale] WARNING: cert fetch failed (HTTPS not enabled in admin console?) — Caddy will serve HTTP only"
+    # Remove any partial files so Caddy doesn't try to load a broken cert
+    rm -f "${TS_CERT_DIR}/server.crt" "${TS_CERT_DIR}/server.key"
+fi
 
 # ── Route all traffic through Tailscale SOCKS5 proxy ────────────
 # Tailscale runs in userspace mode (no TUN device available in this container),
@@ -313,7 +330,11 @@ OPENCODE_PID=$!
 # Connects to the already-running OpenCode backend (OPENCODE_SKIP_START=true)
 # Only reachable over Tailscale — no UI password needed.
 echo "[openchamber] Starting OpenChamber UI..."
-OPENCODE_PORT="${OPENCODE_PORT}" OPENCODE_SKIP_START=true \
+# NO_PROXY ensures openchamber connects directly to OpenCode on localhost
+# without being routed through the Tailscale SOCKS5 proxy (which rejects
+# localhost connections).
+NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
+    OPENCODE_PORT="${OPENCODE_PORT}" OPENCODE_SKIP_START=true \
     openchamber serve --port "${OPENCHAMBER_PORT}" --host 0.0.0.0 --foreground &
 OPENCHAMBER_PID=$!
 
@@ -350,5 +371,12 @@ done) &
 SYNC_PID=$!
 
 # ── Caddy reverse proxy (foreground) — only way in is Tailscale ──
+# If the Tailscale cert was not provisioned, fall back to the HTTP-only Caddyfile.
+if [ -f /tmp/tailscale-cert/server.crt ] && [ -f /tmp/tailscale-cert/server.key ]; then
+    CADDYFILE=/app/Caddyfile
+else
+    echo "[caddy] No TLS cert — using HTTP-only config"
+    CADDYFILE=/app/Caddyfile.http
+fi
 exec env XDG_CONFIG_HOME=/caddy/config XDG_DATA_HOME=/caddy/data \
-    caddy run --config /app/Caddyfile --adapter caddyfile
+    caddy run --config "${CADDYFILE}" --adapter caddyfile
