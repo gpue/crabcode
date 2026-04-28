@@ -111,15 +111,11 @@ function encodeMessage(message) {
 // ── CrabTalk TCP communication ────────────────────────────────────
 
 /**
- * Send a SendMsg to CrabTalk followed by a SubscribeEventMsg, then stream
- * AgentEventMsg responses back via onEvent(AgentEventMsg).
- *
- * Resolves when AgentEventKind.DONE is received or the socket closes.
- * Rejects on connection/protocol errors.
- *
- * Returns a cleanup function that unsubscribes and closes the socket.
+ * Send a SendMsg to CrabTalk and collect the response via onEvent callbacks.
+ * Handles SendResponse (one-shot), AgentEventMsg stream, and StreamEvent.
+ * Resolves when the response is complete or the socket closes.
  */
-function sendToCrabTalkStreaming(sendMessage, subscribeMessage, onEvent, onSubscription) {
+function sendToCrabTalkStreaming(message, onEvent) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(CT_PORT, CT_HOST);
 
@@ -135,9 +131,7 @@ function sendToCrabTalkStreaming(sendMessage, subscribeMessage, onEvent, onSubsc
     };
 
     socket.on("connect", () => {
-      // Send SendMsg then SubscribeEventMsg on the same connection
-      socket.write(encodeMessage(sendMessage));
-      socket.write(encodeMessage(subscribeMessage));
+      socket.write(encodeMessage(message));
     });
 
     socket.on("data", (chunk) => {
@@ -154,12 +148,14 @@ function sendToCrabTalkStreaming(sendMessage, subscribeMessage, onEvent, onSubsc
         try {
           const serverMsg = ServerMessage.decode(msgBuf);
 
-          // Subscription confirmation — capture the subscription ID
-          if (serverMsg.subscriptionInfo) {
-            onSubscription(serverMsg.subscriptionInfo.id, socket);
+          // SendResponse: full reply in one shot (no streaming)
+          if (serverMsg.response) {
+            onEvent({ kind: AgentEventKind.TEXT_DELTA, content: serverMsg.response.content || "" });
+            finish();
+            return;
           }
 
-          // Primary path: AgentEventMsg stream
+          // AgentEventMsg stream
           if (serverMsg.agentEvent) {
             const event = serverMsg.agentEvent;
             onEvent(event);
@@ -169,14 +165,7 @@ function sendToCrabTalkStreaming(sendMessage, subscribeMessage, onEvent, onSubsc
             }
           }
 
-          // SendResponse: full reply in one shot (no streaming)
-          if (serverMsg.response) {
-            onEvent({ kind: AgentEventKind.TEXT_DELTA, content: serverMsg.response.content || "" });
-            finish();
-            return;
-          }
-
-          // Fallback: StreamEvent (chunk/end) for backward compatibility
+          // StreamEvent (chunk/end)
           if (serverMsg.stream) {
             const streamEvent = serverMsg.stream;
             if (streamEvent.chunk) {
@@ -254,36 +243,13 @@ async function handleMessage(chatId, text) {
       },
     });
 
-    const subscribeMsg = ClientMessage.create({
-      subscribeEvent: {
-        source: "crabcode",
-        target_agent: "telegram",
-        once: false,
-      },
-    });
-
     let accumulatedText = "";
 
-    await sendToCrabTalkStreaming(
-      sendMsg,
-      subscribeMsg,
-      (event) => {
-        switch (event.kind) {
-          case AgentEventKind.TEXT_DELTA:
-            accumulatedText += event.content || "";
-            break;
-          // THINKING_*, TOOL_*, DONE handled implicitly (DONE triggers finish)
-        }
-      },
-      (subscriptionId, socket) => {
-        // Store subscription so /start can cancel it
-        eventSubscriptions.set(chatId, { subscriptionId, socket });
-        log("debug", "event subscription registered", { chatId, subscriptionId });
+    await sendToCrabTalkStreaming(sendMsg, (event) => {
+      if (event.kind === AgentEventKind.TEXT_DELTA) {
+        accumulatedText += event.content || "";
       }
-    );
-
-    // Subscription is done after DONE — clean up the map entry
-    eventSubscriptions.delete(chatId);
+    });
 
     const response = accumulatedText.trim() || "No response from agent.";
     await sendMessage(chatId, response);
