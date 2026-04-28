@@ -55,7 +55,7 @@ fi
 if [ -f /home/crabcode/.git-credentials ] && [ ! -f "${PERSISTENT_HOME}/.git-credentials" ]; then
     cp /home/crabcode/.git-credentials "${PERSISTENT_HOME}/.git-credentials"
 fi
-  if [ -d /home/crabcode/.config/gh ] && [ ! -d "${PERSISTENT_HOME}/.config/gh" ]; then
+if [ -d /home/crabcode/.config/gh ] && [ ! -d "${PERSISTENT_HOME}/.config/gh" ]; then
     mkdir -p "${PERSISTENT_HOME}/.config"
     cp -R /home/crabcode/.config/gh "${PERSISTENT_HOME}/.config/gh"
 fi
@@ -188,10 +188,15 @@ if [ ! -d "${WORKSPACE_DIR}/.git" ]; then
     (cd "${WORKSPACE_DIR}" && git init -b main && git commit --allow-empty -m "workspace root" 2>/dev/null) || true
 fi
 echo "[opencode] Starting in ${WORKSPACE_DIR}"
-(cd "${WORKSPACE_DIR}" && env opencode web \
-    --port "${OPENCODE_PORT}" \
-    --hostname 127.0.0.1 \
-    --cors "*") &
+(cd "${WORKSPACE_DIR}" && while true; do
+    echo "[opencode] Launching opencode web..."
+    env opencode web \
+        --port "${OPENCODE_PORT}" \
+        --hostname 127.0.0.1 \
+        --cors "*" || true
+    echo "[opencode] Process exited, restarting in 3s..."
+    sleep 3
+done) &
 OPENCODE_PID=$!
 
 # ── Periodic maintenance (every 5 minutes) ──────────────────────
