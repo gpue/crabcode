@@ -28,17 +28,7 @@ const COPILOT_API = "https://api.githubcopilot.com";
 // ── GitHub token resolution ─────────────────────────────────────
 
 function getGitHubToken() {
-  // 1. Environment variable
-  if (process.env.GH_TOKEN) return process.env.GH_TOKEN;
-  if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN;
-
-  // 2. gh CLI
-  try {
-    const token = execSync("gh auth token 2>/dev/null", { encoding: "utf8" }).trim();
-    if (token) return token;
-  } catch {}
-
-  // 3. OpenCode's persisted auth
+  // 1. OpenCode's persisted Copilot auth (highest priority — obtained via OAuth with copilot scope)
   const authPaths = [
     `${process.env.XDG_DATA_HOME || ""}/opencode/auth.json`,
     `${process.env.HOME}/.local/share/opencode/auth.json`,
@@ -56,6 +46,16 @@ function getGitHubToken() {
       } catch {}
     }
   }
+
+  // 2. gh CLI
+  try {
+    const token = execSync("gh auth token 2>/dev/null", { encoding: "utf8" }).trim();
+    if (token) return token;
+  } catch {}
+
+  // 3. Environment variable (fallback — may lack copilot scope)
+  if (process.env.GH_TOKEN) return process.env.GH_TOKEN;
+  if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN;
 
   return null;
 }
