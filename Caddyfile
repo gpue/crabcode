@@ -1,4 +1,12 @@
-:80 {
+{
+	# Disable Caddy's built-in ACME — certs are provided by Tailscale
+	auto_https off
+}
+
+# HTTPS — served only over Tailscale; cert provisioned by `tailscale cert`
+:443 {
+	tls /tmp/tailscale-cert/server.crt /tmp/tailscale-cert/server.key
+
 	handle /health {
 		respond "ok" 200
 	}
@@ -17,5 +25,16 @@
 		reverse_proxy 127.0.0.1:3000 {
 			header_down -Content-Security-Policy
 		}
+	}
+}
+
+# HTTP — health check for Azure Container Apps + redirect everything else to HTTPS
+:80 {
+	handle /health {
+		respond "ok" 200
+	}
+
+	handle {
+		redir https://{host}{uri} permanent
 	}
 }

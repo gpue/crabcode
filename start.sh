@@ -221,19 +221,31 @@ tailscale --socket=/tmp/tailscale/tailscaled.sock up \
 
 echo "[tailscale] Status: $(tailscale --socket=/tmp/tailscale/tailscaled.sock status --self 2>/dev/null | head -1)"
 
-# ── Enable HTTPS via tailscale serve ────────────────────────────
-# Tailscale runs in userspace networking mode — there is no TUN device, so
-# Caddy cannot bind directly to the Tailscale IP.  `tailscale serve` tells
-# the Tailscale daemon to accept inbound HTTPS on port 443 (it provisions
-# the cert automatically for <hostname>.ts.net via Let's Encrypt) and
-# reverse-proxies to Caddy on :80.  This is the only approach that works
-# in userspace mode.
-# Prerequisite: enable "HTTPS certificates" in the Tailscale admin console.
-tailscale --socket=/tmp/tailscale/tailscaled.sock serve \
-    --bg \
-    https / proxy http://127.0.0.1:80 \
-  && echo "[tailscale] HTTPS serve active — reachable at https://${TS_HOSTNAME:-crabcode}" \
-  || echo "[tailscale] WARNING: 'tailscale serve' failed — HTTP only on :80"
+# ── Provision TLS cert via tailscale cert ────────────────────────
+# In userspace networking mode, inbound Tailscale traffic is handled by
+# netstack which proxies to 127.0.0.1:<port>. So Caddy on :443 works fine.
+# `tailscale cert` provisions a Let's Encrypt cert for <hostname>.<tailnet>.ts.net.
+# Requires "HTTPS certificates" to be enabled in the Tailscale admin console.
+TS_CERT_DIR=/tmp/tailscale-cert
+mkdir -p "${TS_CERT_DIR}"
+
+# Get the full FQDN (e.g., crabcode.tail1234.ts.net) from tailscale status
+TS_FQDN=$(tailscale --socket=/tmp/tailscale/tailscaled.sock status --json 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['Self']['DNSName'].rstrip('.'))" 2>/dev/null || echo "")
+
+if [ -n "${TS_FQDN}" ]; then
+    echo "[tailscale] FQDN: ${TS_FQDN}"
+    if timeout 15 tailscale --socket=/tmp/tailscale/tailscaled.sock cert \
+            --cert-file "${TS_CERT_DIR}/server.crt" \
+            --key-file  "${TS_CERT_DIR}/server.key" \
+            "${TS_FQDN}" 2>/dev/null; then
+        echo "[tailscale] TLS cert provisioned — Caddy will serve HTTPS on :443"
+    else
+        echo "[tailscale] WARNING: cert fetch failed (HTTPS not enabled in admin console?) — HTTP only"
+        rm -f "${TS_CERT_DIR}/server.crt" "${TS_CERT_DIR}/server.key"
+    fi
+else
+    echo "[tailscale] WARNING: could not determine FQDN — HTTP only"
+fi
 
 # ── Route all traffic through Tailscale SOCKS5 proxy ────────────
 # Tailscale runs in userspace mode (no TUN device available in this container),
@@ -326,13 +338,26 @@ OPENCODE_PID=$!
 # ── OpenChamber UI ───────────────────────────────────────────────────
 # Connects to the already-running OpenCode backend (OPENCODE_SKIP_START=true)
 # Only reachable over Tailscale — no UI password needed.
+echo "[openchamber] Waiting for OpenCode on port ${OPENCODE_PORT}..."
+for i in $(seq 1 30); do
+    if nc -z 127.0.0.1 "${OPENCODE_PORT}" 2>/dev/null; then
+        echo "[openchamber] OpenCode ready"
+        break
+    fi
+    sleep 2
+done
+
 echo "[openchamber] Starting OpenChamber UI..."
 # NO_PROXY ensures openchamber connects directly to OpenCode on localhost
 # without being routed through the Tailscale SOCKS5 proxy (which rejects
 # localhost connections).
-NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
-    OPENCODE_PORT="${OPENCODE_PORT}" OPENCODE_SKIP_START=true \
-    openchamber serve --port "${OPENCHAMBER_PORT}" --host 0.0.0.0 --foreground &
+(while true; do
+    NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
+        OPENCODE_PORT="${OPENCODE_PORT}" OPENCODE_SKIP_START=true \
+        openchamber serve --port "${OPENCHAMBER_PORT}" --host 0.0.0.0 --foreground || true
+    echo "[openchamber] Process exited, restarting in 3s..."
+    sleep 3
+done) &
 OPENCHAMBER_PID=$!
 
 # Wait for OpenChamber to be listening before starting Caddy so that
@@ -368,5 +393,12 @@ done) &
 SYNC_PID=$!
 
 # ── Caddy reverse proxy (foreground) — only way in is Tailscale ──
+# If the Tailscale cert was not provisioned, fall back to the HTTP-only Caddyfile.
+if [ -f /tmp/tailscale-cert/server.crt ] && [ -f /tmp/tailscale-cert/server.key ]; then
+    CADDYFILE=/app/Caddyfile
+else
+    echo "[caddy] No TLS cert — using HTTP-only config"
+    CADDYFILE=/app/Caddyfile.http
+fi
 exec env XDG_CONFIG_HOME=/caddy/config XDG_DATA_HOME=/caddy/data \
-    caddy run --config /app/Caddyfile --adapter caddyfile
+    caddy run --config "${CADDYFILE}" --adapter caddyfile
