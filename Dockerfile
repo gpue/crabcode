@@ -95,7 +95,6 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 ARG NOVA_CLI_VERSION=0.0.228
 RUN curl -fsSL "https://github.com/wandelbotsgmbh/nova-cli/releases/download/${NOVA_CLI_VERSION}/novacli_linux_amd64-${NOVA_CLI_VERSION}.tar.gz" \
     | tar -xz -C /usr/local/bin \
-    && mv /usr/local/bin/nova /usr/local/bin/nova \
     && chmod +x /usr/local/bin/nova
 
 # ── Docker CLI (no daemon) ───────────────────────────────────────────
