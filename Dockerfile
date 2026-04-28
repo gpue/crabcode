@@ -82,8 +82,8 @@ RUN curl -fsSL "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release
 # ── Helm ────────────────────────────────────────────────────────────
 RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-# ── zip ─────────────────────────────────────────────────────────────
-RUN apt-get update && apt-get install -y --no-install-recommends zip \
+# ── zip / unzip ─────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends zip unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Go ──────────────────────────────────────────────────────────────

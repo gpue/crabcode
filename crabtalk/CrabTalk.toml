@@ -9,7 +9,7 @@ model = "claude-sonnet-4"
 max_iterations = 64
 thinking = false
 members = ["coder", "reviewer"]
-mcps = ["linear"]
+mcps = ["linear", "opencode"]
 
 [agents.coder]
 description = "Writes code, creates files, runs tests via OpenCode sessions"

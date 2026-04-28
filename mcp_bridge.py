@@ -21,6 +21,9 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel
 
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+
 OPENCODE_HOST = os.environ.get("OPENCODE_HOST", "127.0.0.1")
 OPENCODE_PORT = os.environ.get("OPENCODE_PORT", "4096")
 OPENCODE_BASE = f"http://{OPENCODE_HOST}:{OPENCODE_PORT}"
@@ -692,6 +695,32 @@ async def get_status() -> dict[str, Any]:
         "mcp_bridge_port": MCP_BRIDGE_PORT,
         "state_db": str(DB_PATH),
     }
+
+
+@mcp.tool(name="send_telegram_message")
+async def send_telegram_message(chat_id: str, text: str) -> dict[str, Any]:
+    """Send a Markdown message to a Telegram chat.
+
+    chat_id: numeric Telegram chat ID (extract from sender by stripping the
+             "telegram-" prefix, e.g. sender="telegram-123456" → chat_id="123456").
+    text:    message body; Markdown formatting is supported.
+    """
+    if not TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN == "CHANGE_ME":
+        return {"ok": False, "error": "TELEGRAM_BOT_TOKEN not configured"}
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.post(
+            f"{TELEGRAM_API}/sendMessage",
+            json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
+        )
+        data = resp.json()
+        # Retry without parse_mode if Telegram rejects the Markdown
+        if not data.get("ok") and resp.status_code == 400:
+            resp2 = await client.post(
+                f"{TELEGRAM_API}/sendMessage",
+                json={"chat_id": chat_id, "text": text},
+            )
+            data = resp2.json()
+        return data
 
 
 app = FastAPI(title="crabcode")
