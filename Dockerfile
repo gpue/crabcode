@@ -139,6 +139,12 @@ COPY --chown=crabcode:crabcode package.json /app/package.json
 # ── Install Node.js deps for bridge scripts ─────────────────────────
 RUN cd /app && npm install --omit=dev
 
+# ── SSH config for Tailscale peers (SOCKS5 proxy) ───────────────────
+# Tailscale runs in userspace mode — no kernel routes for 100.x.x.x.
+# Route SSH through the SOCKS5 proxy for all Tailscale IPs and hostnames.
+RUN printf 'Host 100.*\n    ProxyCommand nc -X 5 -x localhost:1055 %%h %%p\n    StrictHostKeyChecking no\n\nHost nova spot unitree pidog\n    ProxyCommand nc -X 5 -x localhost:1055 %%h %%p\n    StrictHostKeyChecking no\n' \
+    >> /etc/ssh/ssh_config
+
 RUN chmod +x /app/start.sh
 
 WORKDIR /workspace
