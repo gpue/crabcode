@@ -15,6 +15,7 @@
 	# Everything else goes to OpenChamber UI
 	handle /* {
 		reverse_proxy 127.0.0.1:3000 {
+			flush_interval -1
 			header_down -Content-Security-Policy
 		}
 	}
