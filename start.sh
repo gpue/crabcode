@@ -312,10 +312,21 @@ OPENCODE_PID=$!
 # ── OpenChamber UI ───────────────────────────────────────────────────
 # Connects to the already-running OpenCode backend (OPENCODE_SKIP_START=true)
 # Only reachable over Tailscale — no UI password needed.
-log "Starting OpenChamber UI..." 2>/dev/null || echo "[openchamber] Starting OpenChamber UI..."
+echo "[openchamber] Starting OpenChamber UI..."
 OPENCODE_PORT="${OPENCODE_PORT}" OPENCODE_SKIP_START=true \
     openchamber serve --port "${OPENCHAMBER_PORT}" --host 0.0.0.0 --foreground &
 OPENCHAMBER_PID=$!
+
+# Wait for OpenChamber to be listening before starting Caddy so that
+# Azure Container Apps health checks succeed and the new revision is promoted.
+echo "[openchamber] Waiting for port ${OPENCHAMBER_PORT}..."
+for i in $(seq 1 15); do
+    if nc -z 127.0.0.1 "${OPENCHAMBER_PORT}" 2>/dev/null; then
+        echo "[openchamber] Ready on port ${OPENCHAMBER_PORT}"
+        break
+    fi
+    sleep 1
+done
 
 # Sync once after OpenCode has had time to write auth.json on first connect
 (sleep 30 && sync_session_data && echo "[opencode] Early sync completed") &
@@ -337,8 +348,6 @@ OPENCHAMBER_PID=$!
     fi
 done) &
 SYNC_PID=$!
-
-sleep 2
 
 # ── Caddy reverse proxy (foreground) — only way in is Tailscale ──
 exec env XDG_CONFIG_HOME=/caddy/config XDG_DATA_HOME=/caddy/data \
