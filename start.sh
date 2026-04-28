@@ -201,6 +201,9 @@ echo "[tailscale] Status: $(tailscale --socket=/tmp/tailscale/tailscaled.sock st
 # Public internet traffic passes through the proxy normally.
 export ALL_PROXY=socks5h://localhost:1055
 export all_proxy=socks5h://localhost:1055
+# Write to /etc/environment so all new shells and processes inherit it
+grep -qxF 'ALL_PROXY=socks5h://localhost:1055' /etc/environment 2>/dev/null || \
+    printf 'ALL_PROXY=socks5h://localhost:1055\nall_proxy=socks5h://localhost:1055\n' >> /etc/environment
 echo "[tailscale] SOCKS5 proxy set: ALL_PROXY=socks5h://localhost:1055"
 
 # ── Fix /etc/hosts for nova ──────────────────────────────────────
