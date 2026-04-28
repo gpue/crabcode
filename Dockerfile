@@ -1,7 +1,8 @@
-# crabcode — Always-on AI coding agent with OpenCode Web UI + CrabTalk
+# crabcode — Always-on AI coding agent with OpenChamber UI + CrabTalk
 # -------------------------------------------------------------------
 # Provides:
-#   - OpenCode web UI (port 4096, internal) for browser-based AI coding
+#   - OpenChamber UI (port 3000, internal) for browser-based AI coding
+#   - OpenCode backend (port 4096, internal) as the session engine
 #   - MCP bridge server (port 8081, internal) for programmatic agent access
 #   - CrabTalk daemon (port 6688, internal) for AI agent orchestration
 #   - Telegram bridge for chat-based ticket interaction
@@ -51,6 +52,10 @@ RUN curl -fsSL https://astral.sh/uv/install.sh | sh \
 RUN curl -fsSL "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-x64.tar.gz" \
     | tar -xz -C /usr/local/bin \
     && chmod +x /usr/local/bin/opencode
+
+# ── Install OpenChamber ─────────────────────────────────────────────
+RUN curl -fsSL https://raw.githubusercontent.com/openchamber/openchamber/main/scripts/install.sh | bash \
+    && (ls /root/.local/bin/openchamber 2>/dev/null && ln -sf /root/.local/bin/openchamber /usr/local/bin/openchamber || true)
 
 # ── Install CrabTalk binary ─────────────────────────────────────────
 RUN curl -fsSL "https://github.com/gpue/crabtalk/releases/download/v${CRABTALK_VERSION}/crabtalk-linux-amd64.tar.gz" \
@@ -117,6 +122,8 @@ RUN mkdir -p /workspace \
     && mkdir -p /app/static /app/proto \
     && mkdir -p /caddy/config /caddy/data \
     && mkdir -p /var/lib/tailscale \
+    && mkdir -p /home/crabcode/.config/openchamber \
+    && mkdir -p /home/crabcode/.local/share/openchamber \
     && chown -R crabcode:crabcode /workspace /home/crabcode /app /caddy
 
 # ── CrabTalk config ─────────────────────────────────────────────────

@@ -12,9 +12,9 @@
 		reverse_proxy 127.0.0.1:8081
 	}
 
-	# Everything else goes to OpenCode's built-in web UI
+	# Everything else goes to OpenChamber UI
 	handle /* {
-		reverse_proxy 127.0.0.1:4096 {
+		reverse_proxy 127.0.0.1:3000 {
 			header_down -Content-Security-Policy
 		}
 	}
