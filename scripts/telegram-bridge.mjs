@@ -131,6 +131,9 @@ function sendToCrabTalkStreaming(message, onEvent) {
     };
 
     socket.on("connect", () => {
+      // Subscribe to agent events on this socket first, then send the message.
+      // CrabTalk delivers AgentEventMsg TEXT_DELTA/DONE events only to subscribed sockets.
+      socket.write(encodeMessage(ClientMessage.create({ subscribeEvents: {} })));
       socket.write(encodeMessage(message));
     });
 
@@ -148,14 +151,13 @@ function sendToCrabTalkStreaming(message, onEvent) {
         try {
           const serverMsg = ServerMessage.decode(msgBuf);
 
-          // SendResponse: full reply in one shot (no streaming)
+          // SendResponse: ack only — content is always empty; wait for AgentEventMsg
           if (serverMsg.response) {
-            onEvent({ kind: AgentEventKind.TEXT_DELTA, content: serverMsg.response.content || "" });
-            finish();
-            return;
+            // Do NOT finish here; real content comes via AgentEventMsg TEXT_DELTA
+            continue;
           }
 
-          // AgentEventMsg stream
+          // AgentEventMsg stream (primary path)
           if (serverMsg.agentEvent) {
             const event = serverMsg.agentEvent;
             onEvent(event);
@@ -165,7 +167,7 @@ function sendToCrabTalkStreaming(message, onEvent) {
             }
           }
 
-          // StreamEvent (chunk/end)
+          // StreamEvent (chunk/end) — fallback for StreamMsg-based agents
           if (serverMsg.stream) {
             const streamEvent = serverMsg.stream;
             if (streamEvent.chunk) {

@@ -246,7 +246,8 @@ COPILOT_PROXY_PID=$!
 sleep 1
 
 # ── CrabTalk daemon ──────────────────────────────────────────────
-HOME=/home/crabcode crabtalk --foreground --tcp &
+# NO_PROXY ensures CrabTalk bypasses SOCKS5 for local copilot proxy (127.0.0.1:18791)
+NO_PROXY=127.0.0.1,localhost HOME=/home/crabcode crabtalk --foreground --tcp &
 CRABTALK_PID=$!
 sleep 3
 

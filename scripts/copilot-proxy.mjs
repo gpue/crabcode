@@ -109,6 +109,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  console.log(`[copilot-proxy] ${req.method} ${req.url}`);
   try {
     const token = getGitHubToken();
     if (!token) {
@@ -150,7 +151,9 @@ const server = http.createServer(async (req, res) => {
       if (key.toLowerCase() !== "content-length") headers[key] = value;
     });
 
+    console.log(`[copilot-proxy] ${req.method} ${req.url}`);
     res.writeHead(upstream.status, headers);
+    console.log(`[copilot-proxy] upstream status: ${upstream.status}`);
 
     if (upstream.body) {
       Readable.fromWeb(upstream.body).pipe(res);
