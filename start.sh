@@ -2,20 +2,29 @@
 # start.sh — entrypoint for crabcode container
 # Starts Tailscale, OpenCode web UI, CrabTalk, Telegram bridge, and Caddy.
 # All services are only reachable via Tailscale — no public ingress.
-set -euo pipefail
+set -uo pipefail
+# NOTE: -e intentionally omitted — we handle errors explicitly below.
+# Azure File Share mounts can hang; we must not let that block forever.
 
-echo "[start.sh] Booting crabcode container..." >&2
 echo "[start.sh] Booting crabcode container..."
 
-# Fail gracefully if Azure File Share mount isn't ready yet
-for i in $(seq 1 10); do
-    if touch "${WORKSPACE_DIR:-/workspace}/.mount-test" 2>/dev/null; then
-        rm -f "${WORKSPACE_DIR:-/workspace}/.mount-test"
+# Check if workspace mount is responsive (timeout after 5s per attempt)
+MOUNT_OK=false
+for i in 1 2 3 4 5; do
+    if timeout 5 ls "${WORKSPACE_DIR:-/workspace}/" >/dev/null 2>&1; then
+        MOUNT_OK=true
+        echo "[start.sh] Workspace mount is ready"
         break
     fi
-    echo "[start.sh] Waiting for workspace mount... (attempt $i/10)"
-    sleep 2
+    echo "[start.sh] Waiting for workspace mount... (attempt $i/5)"
+    sleep 3
 done
+
+if [ "$MOUNT_OK" = "false" ]; then
+    echo "[start.sh] WARNING: Workspace mount not responsive — starting with local fallback"
+    export WORKSPACE_DIR="/tmp/workspace-fallback"
+    mkdir -p "$WORKSPACE_DIR"
+fi
 
 export BASE_PATH="${BASE_PATH:-}"
 export OPENCODE_PORT="${OPENCODE_PORT:-4096}"
@@ -32,7 +41,7 @@ PERSISTENT_DATA="${WORKSPACE_DIR}/.opencode/data"
 
 # ── Persistent home setup ────────────────────────────────────────
 mkdir -p "${PERSISTENT_HOME}" "${PERSISTENT_HOME}/.config" \
-         "${PERSISTENT_HOME}/.cache" "${PERSISTENT_HOME}/.local/share"
+         "${PERSISTENT_HOME}/.cache" "${PERSISTENT_HOME}/.local/share" || true
 
 mkdir -p "${OPENCODE_XDG_ROOT}/config/opencode" \
          "${XDG_DATA_HOME}" \
