@@ -194,6 +194,15 @@ tailscale --socket=/tmp/tailscale/tailscaled.sock up \
 
 echo "[tailscale] Status: $(tailscale --socket=/tmp/tailscale/tailscaled.sock status --self 2>/dev/null | head -1)"
 
+# ── Route all traffic through Tailscale SOCKS5 proxy ────────────
+# Tailscale runs in userspace mode (no TUN device available in this container),
+# so the kernel has no route for 100.x.x.x. Setting ALL_PROXY makes curl,
+# python, kubectl, and all other HTTP clients transparently reach Tailscale peers.
+# Public internet traffic passes through the proxy normally.
+export ALL_PROXY=socks5h://localhost:1055
+export all_proxy=socks5h://localhost:1055
+echo "[tailscale] SOCKS5 proxy set: ALL_PROXY=socks5h://localhost:1055"
+
 # ── Fix /etc/hosts for nova ──────────────────────────────────────
 # The container platform injects a stale LAN entry for 'nova' on every start.
 # Replace it with the correct Tailscale IP.
