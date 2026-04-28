@@ -22,6 +22,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_NOTIFY_TARGET = os.environ.get("TELEGRAM_NOTIFY_TARGET", "")
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 OPENCODE_HOST = os.environ.get("OPENCODE_HOST", "127.0.0.1")
