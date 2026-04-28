@@ -193,6 +193,13 @@ tailscale --socket=/tmp/tailscale/tailscaled.sock up \
 
 echo "[tailscale] Status: $(tailscale --socket=/tmp/tailscale/tailscaled.sock status --self 2>/dev/null | head -1)"
 
+# ── Fix /etc/hosts for nova ──────────────────────────────────────
+# The container platform injects a stale LAN entry for 'nova' on every start.
+# Replace it with the correct Tailscale IP.
+sed -i "s/.*\bnova\b.*/100.113.46.67\tnova/" /etc/hosts
+grep -q "nova" /etc/hosts || echo "100.113.46.67	nova" >> /etc/hosts
+echo "[hosts] nova -> 100.113.46.67"
+
 # ── Bootstrap workspace repos ───────────────────────────────────
 # Clone default repos into /workspace on first boot so OpenCode has projects to work with.
 # Uses GH_TOKEN for auth. Add more repos to the array as needed.
@@ -203,8 +210,9 @@ REPOS=(
 if [ -n "${GH_TOKEN:-}" ]; then
     git config --global credential.helper store
     echo "https://x-access-token:${GH_TOKEN}@github.com" > "${HOME}/.git-credentials"
-    git config --global user.name "crab"
-    git config --global user.email "georg.pueschel+crabcode@gmail.com"
+    git config --global user.name "Georg Püschel"
+    git config --global user.email "georg.pueschel@wandelbots.com"
+    echo "${GH_TOKEN}" | gh auth login --with-token
 fi
 
 for repo in "${REPOS[@]}"; do
