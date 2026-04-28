@@ -48,7 +48,8 @@ echo "[start.sh] Creating opencode directories..."
 timeout 10 mkdir -p "${OPENCODE_XDG_ROOT}/config/opencode" \
          "${XDG_DATA_HOME}" \
          "${XDG_CACHE_HOME}" \
-         "${PERSISTENT_DATA}" || echo "[start.sh] WARNING: mkdir opencode dirs timed out/failed"
+         "${PERSISTENT_DATA}" \
+         "${PERSISTENT_DATA}/mcp-bridge-state" || echo "[start.sh] WARNING: mkdir opencode dirs timed out/failed"
 
 # Restore session data from persistent storage (SQLite runs on local tmpfs)
 if [ -d "${PERSISTENT_DATA}/opencode" ]; then
@@ -221,10 +222,14 @@ echo "[opencode] Starting in ${WORKSPACE_DIR}"
 done) &
 OPENCODE_PID=$!
 
-# ── Periodic maintenance (every 5 minutes) ──────────────────────
-# Syncs session data and copies opencode.json to any new git repos
+# Sync once after OpenCode has had time to write auth.json on first connect
+(sleep 30 && sync_session_data && echo "[opencode] Early sync completed") &
+
+# ── Periodic maintenance (every 60 seconds) ─────────────────────
+# Syncs session data (including auth.json / provider connections) frequently
+# so a hard container kill loses at most 60s of state.
 (while true; do
-    sleep 300
+    sleep 60
     sync_session_data
     # Copy opencode.json to any new git repos that appeared since boot
     if [ -f /app/opencode.json ]; then

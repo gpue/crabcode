@@ -7,12 +7,17 @@
  *
  * Implements the MCP stdio transport (newline-delimited JSON-RPC 2.0).
  * Exposes: create_issue, update_issue, search_issues, get_user_issues, add_comment
+ *
+ * Environment variables:
+ *   LINEAR_API_KEY  - Linear API key (required)
+ *   LINEAR_TEAM_ID - Default team ID/key to use when not specified (optional)
  */
 
 import { createInterface } from "readline";
 
 const LINEAR_API = "https://api.linear.app/graphql";
 const API_KEY = process.env.LINEAR_API_KEY;
+const DEFAULT_TEAM_ID = process.env.LINEAR_TEAM_ID || "";
 
 if (!API_KEY) {
   process.stderr.write("[linear-mcp] ERROR: LINEAR_API_KEY is not set\n");
@@ -31,11 +36,13 @@ async function gql(query, variables = {}) {
     body: JSON.stringify({ query, variables }),
   });
   if (!res.ok) {
-    throw new Error(`Linear API HTTP ${res.status}: ${await res.text()}`);
+    const text = await res.text();
+    throw new Error(`Linear API HTTP ${res.status}: ${text}`);
   }
   const json = await res.json();
   if (json.errors?.length) {
-    throw new Error(json.errors.map((e) => e.message).join("; "));
+    const msg = json.errors.map((e) => e.message).join("; ");
+    throw new Error(`Linear API error: ${msg}`);
   }
   return json.data;
 }
@@ -65,12 +72,16 @@ async function resolveTeamId(teamId) {
 // ── Tool implementations ──────────────────────────────────────────────────────
 
 async function createIssue({ title, teamId, description, priority, status }) {
-  teamId = await resolveTeamId(teamId);
+  const resolvedTeamId = teamId || DEFAULT_TEAM_ID;
+  if (!resolvedTeamId) {
+    throw new Error("teamId is required. Pass a team key (e.g., 'CRAB') or set LINEAR_TEAM_ID environment variable.");
+  }
+  const teamIdUuid = await resolveTeamId(resolvedTeamId);
   const data = await gql(
     `mutation CreateIssue($input: IssueCreateInput!) {
       issueCreate(input: $input) { success issue { id identifier url title } }
     }`,
-    { input: { title, teamId, description, priority, stateId: status } }
+    { input: { title, teamId: teamIdUuid, description, priority, stateId: status } }
   );
   const issue = data.issueCreate.issue;
   return `Created issue ${issue.identifier}: ${issue.title}\nURL: ${issue.url}`;
@@ -213,26 +224,29 @@ const TOOLS = [
       type: "object",
       properties: {
         title: { type: "string", description: "Issue title" },
-        teamId: { type: "string", description: "Team ID" },
-        description: { type: "string", description: "Issue description" },
-        priority: { type: "number", description: "Priority (0-4)" },
-        status: { type: "string", description: "Issue status" },
+        teamId: { 
+          type: "string", 
+          description: "Team ID or key (e.g., 'CRAB', 'ENG'). Optional if LINEAR_TEAM_ID env var is set." 
+        },
+        description: { type: "string", description: "Issue description (markdown supported)" },
+        priority: { type: "number", description: "Priority: 0=No priority, 1=Urgent, 2=High, 3=Medium, 4=Low" },
+        status: { type: "string", description: "State ID to set initial status (optional)" },
       },
-      required: ["title", "teamId"],
+      required: ["title"],
     },
   },
   {
     name: "linear_update_issue",
     description:
-      "Updates an existing Linear issue. Requires the issue ID.",
+      "Updates an existing Linear issue. Requires the issue ID (not the identifier).",
     inputSchema: {
       type: "object",
       properties: {
-        id: { type: "string", description: "Issue ID" },
+        id: { type: "string", description: "Issue ID (UUID, e.g., 'abc123')" },
         title: { type: "string", description: "New title" },
-        description: { type: "string", description: "New description" },
-        priority: { type: "number", description: "New priority (0-4)" },
-        status: { type: "string", description: "New status" },
+        description: { type: "string", description: "New description (markdown supported)" },
+        priority: { type: "number", description: "New priority: 0=No priority, 1=Urgent, 2=High, 3=Medium, 4=Low" },
+        status: { type: "string", description: "New state ID" },
       },
       required: ["id"],
     },
@@ -240,16 +254,16 @@ const TOOLS = [
   {
     name: "linear_search_issues",
     description:
-      "Searches Linear issues by text query and/or filters (team, status, assignee, labels, priority).",
+      "Searches Linear issues by text query and/or filters. Returns matching issues with ID, status, priority, assignee, team, and URL.",
     inputSchema: {
       type: "object",
       properties: {
         query: { type: "string", description: "Text to search in title/description" },
-        teamId: { type: "string", description: "Filter by team ID" },
-        status: { type: "string", description: "Filter by status name" },
+        teamId: { type: "string", description: "Filter by team ID or key (e.g., 'CRAB')" },
+        status: { type: "string", description: "Filter by status name (e.g., 'In Progress', 'Todo')" },
         assigneeId: { type: "string", description: "Filter by assignee user ID" },
         labels: { type: "array", items: { type: "string" }, description: "Filter by label names" },
-        priority: { type: "number", description: "Filter by priority (1=urgent, 2=high, 3=normal, 4=low)" },
+        priority: { type: "number", description: "Filter by priority: 1=Urgent, 2=High, 3=Medium, 4=Low" },
         estimate: { type: "number", description: "Filter by estimate points" },
         includeArchived: { type: "boolean", description: "Include archived issues" },
         limit: { type: "number", description: "Max results (default: 10)" },
@@ -353,8 +367,15 @@ rl.on("line", async (line) => {
           error(id, -32601, `Unknown tool: ${name}`);
           break;
         }
-        const text = await handler(args ?? {});
-        respond(id, { content: [{ type: "text", text }] });
+        try {
+          const text = await handler(args ?? {});
+          respond(id, { content: [{ type: "text", text }] });
+        } catch (err) {
+          const hint = err.message.includes("team") 
+            ? " Hint: Use a team key like 'CRAB' or set LINEAR_TEAM_ID env var."
+            : "";
+          error(id, -32000, `${err.message}${hint}`);
+        }
         break;
       }
 

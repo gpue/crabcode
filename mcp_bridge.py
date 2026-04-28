@@ -28,8 +28,11 @@ OPENCODE_BASE = f"http://{OPENCODE_HOST}:{OPENCODE_PORT}"
 MCP_BRIDGE_PORT = int(os.environ.get("MCP_BRIDGE_PORT", "8081"))
 BASE_PATH = os.environ.get("BASE_PATH", "")
 WORKSPACE_DIR = Path(os.environ.get("WORKSPACE_DIR", "/workspace"))
-# SQLite on Azure File Share fails (no proper locking) — use local ephemeral storage
-STATE_DIR = Path(os.environ.get("MCP_BRIDGE_STATE_DIR", "/tmp/crabcode-state"))
+# The MCP bridge state DB is low-contention (single writer) so it is safe on Azure File Share.
+# Default to the persistent volume so board state survives container restarts.
+STATE_DIR = Path(
+    os.environ.get("MCP_BRIDGE_STATE_DIR", "/workspace/.opencode/data/mcp-bridge-state")
+)
 DB_PATH = STATE_DIR / "state.db"
 
 OPENCODE_USERNAME = os.environ.get("OPENCODE_SERVER_USERNAME", "")
