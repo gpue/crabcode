@@ -169,6 +169,13 @@ function sendToCrabTalkStreaming(sendMessage, subscribeMessage, onEvent, onSubsc
             }
           }
 
+          // SendResponse: full reply in one shot (no streaming)
+          if (serverMsg.response) {
+            onEvent({ kind: AgentEventKind.TEXT_DELTA, content: serverMsg.response.content || "" });
+            finish();
+            return;
+          }
+
           // Fallback: StreamEvent (chunk/end) for backward compatibility
           if (serverMsg.stream) {
             const streamEvent = serverMsg.stream;
