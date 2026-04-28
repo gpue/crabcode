@@ -51,11 +51,35 @@ timeout 10 mkdir -p "${OPENCODE_XDG_ROOT}/config/opencode" \
          "${PERSISTENT_DATA}" \
          "${PERSISTENT_DATA}/mcp-bridge-state" || echo "[start.sh] WARNING: mkdir opencode dirs timed out/failed"
 
-# Restore session data from persistent storage (SQLite runs on local tmpfs)
+# Restore session data from persistent storage (SQLite runs on local tmpfs).
+# We only restore the files that matter for session/auth continuity:
+#   auth.json         — provider OAuth tokens
+#   opencode.db       — SQLite base database
+#   opencode.db-wal   — SQLite WAL (contains all recent writes)
+#   storage/          — session diffs and other app state
+# Explicitly excluded from restore (and sync):
+#   snapshot/         — per-tool git-object undo trees; grows to GBs, useless after restart
+#   log/              — log files; not needed on restore
+#   opencode.db-shm   — SQLite shared-memory index; process-local, SQLite recreates it
 if [ -d "${PERSISTENT_DATA}/opencode" ]; then
-    timeout 10 cp -a "${PERSISTENT_DATA}/opencode" "${XDG_DATA_HOME}/" 2>/dev/null || true
+    mkdir -p "${XDG_DATA_HOME}/opencode"
+    for f in auth.json opencode.db opencode.db-wal; do
+        [ -f "${PERSISTENT_DATA}/opencode/${f}" ] && \
+            timeout 30 cp "${PERSISTENT_DATA}/opencode/${f}" "${XDG_DATA_HOME}/opencode/${f}" 2>/dev/null || true
+    done
+    if [ -d "${PERSISTENT_DATA}/opencode/storage" ]; then
+        timeout 60 cp -a "${PERSISTENT_DATA}/opencode/storage" "${XDG_DATA_HOME}/opencode/" 2>/dev/null || true
+    fi
     echo "[opencode] Restored session data from persistent storage"
 fi
+
+# Clean up large dirs that should never be persisted (runs in background, non-blocking).
+# snapshot/ = per-tool git undo trees (grows to GBs); log/ = log files.
+# opencode.db-shm is process-local; remove any stale copy so SQLite starts clean.
+(rm -rf "${PERSISTENT_DATA}/opencode/snapshot" \
+        "${PERSISTENT_DATA}/opencode/log" \
+        "${PERSISTENT_DATA}/opencode/opencode.db-shm" 2>/dev/null && \
+ echo "[opencode] Persistent storage cleanup complete") &
 
 # Always overwrite config from image (ensures config updates propagate)
 # OpenCode natively supports {env:VAR} syntax — no envsubst needed
@@ -125,8 +149,21 @@ echo "===================="
 
 # ── Trap for cleanup ─────────────────────────────────────────────
 sync_session_data() {
-    if [ -d "${XDG_DATA_HOME}/opencode" ]; then
-        cp -a "${XDG_DATA_HOME}/opencode" "${PERSISTENT_DATA}/" 2>/dev/null || true
+    if [ ! -d "${XDG_DATA_HOME}/opencode" ]; then return; fi
+    mkdir -p "${PERSISTENT_DATA}/opencode"
+    # Checkpoint WAL into the main DB file so opencode.db is self-contained.
+    # This makes the backup consistent and reduces the WAL file size over time.
+    if [ -f "${XDG_DATA_HOME}/opencode/opencode.db" ]; then
+        sqlite3 "${XDG_DATA_HOME}/opencode/opencode.db" "PRAGMA wal_checkpoint(FULL);" 2>/dev/null || true
+    fi
+    # Copy only what's needed for session/auth persistence.
+    # Intentionally exclude: snapshot/ (undo trees, can be GBs), log/, opencode.db-shm
+    for f in auth.json opencode.db opencode.db-wal; do
+        [ -f "${XDG_DATA_HOME}/opencode/${f}" ] && \
+            cp "${XDG_DATA_HOME}/opencode/${f}" "${PERSISTENT_DATA}/opencode/${f}" 2>/dev/null || true
+    done
+    if [ -d "${XDG_DATA_HOME}/opencode/storage" ]; then
+        cp -a "${XDG_DATA_HOME}/opencode/storage" "${PERSISTENT_DATA}/opencode/" 2>/dev/null || true
     fi
 }
 cleanup() {
