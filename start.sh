@@ -4,6 +4,19 @@
 # All services are only reachable via Tailscale — no public ingress.
 set -euo pipefail
 
+echo "[start.sh] Booting crabcode container..." >&2
+echo "[start.sh] Booting crabcode container..."
+
+# Fail gracefully if Azure File Share mount isn't ready yet
+for i in $(seq 1 10); do
+    if touch "${WORKSPACE_DIR:-/workspace}/.mount-test" 2>/dev/null; then
+        rm -f "${WORKSPACE_DIR:-/workspace}/.mount-test"
+        break
+    fi
+    echo "[start.sh] Waiting for workspace mount... (attempt $i/10)"
+    sleep 2
+done
+
 export BASE_PATH="${BASE_PATH:-}"
 export OPENCODE_PORT="${OPENCODE_PORT:-4096}"
 export MCP_BRIDGE_PORT="${MCP_BRIDGE_PORT:-8081}"
