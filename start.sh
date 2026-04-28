@@ -40,51 +40,51 @@ export XDG_CACHE_HOME="/tmp/opencode-cache"
 PERSISTENT_DATA="${WORKSPACE_DIR}/.opencode/data"
 
 # ── Persistent home setup ────────────────────────────────────────
-mkdir -p "${PERSISTENT_HOME}" "${PERSISTENT_HOME}/.config" \
-         "${PERSISTENT_HOME}/.cache" "${PERSISTENT_HOME}/.local/share" || true
+echo "[start.sh] Creating persistent directories..."
+timeout 10 mkdir -p "${PERSISTENT_HOME}" "${PERSISTENT_HOME}/.config" \
+         "${PERSISTENT_HOME}/.cache" "${PERSISTENT_HOME}/.local/share" || echo "[start.sh] WARNING: mkdir persistent home timed out/failed"
 
-mkdir -p "${OPENCODE_XDG_ROOT}/config/opencode" \
+echo "[start.sh] Creating opencode directories..."
+timeout 10 mkdir -p "${OPENCODE_XDG_ROOT}/config/opencode" \
          "${XDG_DATA_HOME}" \
          "${XDG_CACHE_HOME}" \
-         "${PERSISTENT_DATA}"
+         "${PERSISTENT_DATA}" || echo "[start.sh] WARNING: mkdir opencode dirs timed out/failed"
 
 # Restore session data from persistent storage (SQLite runs on local tmpfs)
 if [ -d "${PERSISTENT_DATA}/opencode" ]; then
-    cp -a "${PERSISTENT_DATA}/opencode" "${XDG_DATA_HOME}/" 2>/dev/null || true
+    timeout 10 cp -a "${PERSISTENT_DATA}/opencode" "${XDG_DATA_HOME}/" 2>/dev/null || true
     echo "[opencode] Restored session data from persistent storage"
 fi
 
 # Always overwrite config from image (ensures config updates propagate)
 # OpenCode natively supports {env:VAR} syntax — no envsubst needed
+echo "[start.sh] Installing opencode config..."
 if [ -f /app/opencode.json ]; then
-    cp /app/opencode.json "${OPENCODE_XDG_ROOT}/config/opencode/opencode.json"
+    timeout 5 cp /app/opencode.json "${OPENCODE_XDG_ROOT}/config/opencode/opencode.json" || true
     echo "[opencode] Config installed to ${OPENCODE_XDG_ROOT}/config/opencode/opencode.json" >&2
     # Also copy to /workspace root and git projects (project-level config has highest precedence)
-    cp /app/opencode.json "${WORKSPACE_DIR}/opencode.json" 2>/dev/null || true
+    timeout 5 cp /app/opencode.json "${WORKSPACE_DIR}/opencode.json" 2>/dev/null || true
     for d in "${WORKSPACE_DIR}"/*/; do
         if [ -d "${d}.git" ]; then
-            cp /app/opencode.json "${d}opencode.json" 2>/dev/null || true
+            timeout 5 cp /app/opencode.json "${d}opencode.json" 2>/dev/null || true
         fi
     done
 else
     echo "[opencode] ERROR: /app/opencode.json not found!" >&2
 fi
 
-# Persist git config
-if [ -f /home/crabcode/.gitconfig ] && [ ! -f "${PERSISTENT_HOME}/.gitconfig" ]; then
-    cp /home/crabcode/.gitconfig "${PERSISTENT_HOME}/.gitconfig"
-fi
-if [ -f /home/crabcode/.git-credentials ] && [ ! -f "${PERSISTENT_HOME}/.git-credentials" ]; then
-    cp /home/crabcode/.git-credentials "${PERSISTENT_HOME}/.git-credentials"
-fi
+# Persist git config (non-critical, use timeouts)
+echo "[start.sh] Setting up persistent home..."
+timeout 5 cp /home/crabcode/.gitconfig "${PERSISTENT_HOME}/.gitconfig" 2>/dev/null || true
+timeout 5 cp /home/crabcode/.git-credentials "${PERSISTENT_HOME}/.git-credentials" 2>/dev/null || true
 if [ -d /home/crabcode/.config/gh ] && [ ! -d "${PERSISTENT_HOME}/.config/gh" ]; then
-    mkdir -p "${PERSISTENT_HOME}/.config"
-    cp -R /home/crabcode/.config/gh "${PERSISTENT_HOME}/.config/gh"
+    timeout 5 mkdir -p "${PERSISTENT_HOME}/.config" 2>/dev/null || true
+    timeout 10 cp -R /home/crabcode/.config/gh "${PERSISTENT_HOME}/.config/gh" 2>/dev/null || true
 fi
 
 # Persist Azure CLI state
 if [ -d /home/crabcode/.azure ] && [ ! -d "${PERSISTENT_HOME}/.azure" ]; then
-    cp -R /home/crabcode/.azure "${PERSISTENT_HOME}/.azure"
+    timeout 10 cp -R /home/crabcode/.azure "${PERSISTENT_HOME}/.azure" 2>/dev/null || true
 fi
 
 # Symlink persistent dirs
