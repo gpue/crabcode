@@ -140,7 +140,6 @@ COPY --chown=crabcode:crabcode mcp_bridge.py /app/mcp_bridge.py
 COPY --chown=crabcode:crabcode scripts/ /app/scripts/
 COPY --chown=crabcode:crabcode start.sh /app/start.sh
 COPY --chown=crabcode:crabcode Caddyfile /app/Caddyfile
-COPY --chown=crabcode:crabcode Caddyfile.http /app/Caddyfile.http
 COPY --chown=crabcode:crabcode package.json /app/package.json
 
 # ── Install Node.js deps for bridge scripts ─────────────────────────

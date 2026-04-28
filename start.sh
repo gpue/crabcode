@@ -221,22 +221,19 @@ tailscale --socket=/tmp/tailscale/tailscaled.sock up \
 
 echo "[tailscale] Status: $(tailscale --socket=/tmp/tailscale/tailscaled.sock status --self 2>/dev/null | head -1)"
 
-# ── Fetch Tailscale TLS certificate ─────────────────────────────
-# Requires "HTTPS certificates" to be enabled in the Tailscale admin console
-# (tailnet DNS settings). On success, Caddy will serve HTTPS on :443.
-# On failure, Caddy still starts but only serves HTTP on :80.
-TS_CERT_DIR=/tmp/tailscale-cert
-mkdir -p "${TS_CERT_DIR}"
-if timeout 15 tailscale --socket=/tmp/tailscale/tailscaled.sock cert \
-        --cert-file "${TS_CERT_DIR}/server.crt" \
-        --key-file  "${TS_CERT_DIR}/server.key" \
-        "${TS_HOSTNAME:-crabcode}" 2>/dev/null; then
-    echo "[tailscale] TLS cert provisioned — Caddy will serve HTTPS on :443"
-else
-    echo "[tailscale] WARNING: cert fetch failed (HTTPS not enabled in admin console?) — Caddy will serve HTTP only"
-    # Remove any partial files so Caddy doesn't try to load a broken cert
-    rm -f "${TS_CERT_DIR}/server.crt" "${TS_CERT_DIR}/server.key"
-fi
+# ── Enable HTTPS via tailscale serve ────────────────────────────
+# Tailscale runs in userspace networking mode — there is no TUN device, so
+# Caddy cannot bind directly to the Tailscale IP.  `tailscale serve` tells
+# the Tailscale daemon to accept inbound HTTPS on port 443 (it provisions
+# the cert automatically for <hostname>.ts.net via Let's Encrypt) and
+# reverse-proxies to Caddy on :80.  This is the only approach that works
+# in userspace mode.
+# Prerequisite: enable "HTTPS certificates" in the Tailscale admin console.
+tailscale --socket=/tmp/tailscale/tailscaled.sock serve \
+    --bg \
+    https / proxy http://127.0.0.1:80 \
+  && echo "[tailscale] HTTPS serve active — reachable at https://${TS_HOSTNAME:-crabcode}" \
+  || echo "[tailscale] WARNING: 'tailscale serve' failed — HTTP only on :80"
 
 # ── Route all traffic through Tailscale SOCKS5 proxy ────────────
 # Tailscale runs in userspace mode (no TUN device available in this container),
@@ -371,12 +368,5 @@ done) &
 SYNC_PID=$!
 
 # ── Caddy reverse proxy (foreground) — only way in is Tailscale ──
-# If the Tailscale cert was not provisioned, fall back to the HTTP-only Caddyfile.
-if [ -f /tmp/tailscale-cert/server.crt ] && [ -f /tmp/tailscale-cert/server.key ]; then
-    CADDYFILE=/app/Caddyfile
-else
-    echo "[caddy] No TLS cert — using HTTP-only config"
-    CADDYFILE=/app/Caddyfile.http
-fi
 exec env XDG_CONFIG_HOME=/caddy/config XDG_DATA_HOME=/caddy/data \
-    caddy run --config "${CADDYFILE}" --adapter caddyfile
+    caddy run --config /app/Caddyfile --adapter caddyfile
