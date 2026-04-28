@@ -91,6 +91,13 @@ RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
     | tar -xz -C /usr/local
 ENV PATH="/usr/local/go/bin:${PATH}"
 
+# ── Nova CLI ────────────────────────────────────────────────────────
+ARG NOVA_CLI_VERSION=0.0.228
+RUN curl -fsSL "https://github.com/wandelbotsgmbh/nova-cli/releases/download/${NOVA_CLI_VERSION}/novacli_linux_amd64-${NOVA_CLI_VERSION}.tar.gz" \
+    | tar -xz -C /usr/local/bin \
+    && mv /usr/local/bin/nova /usr/local/bin/nova \
+    && chmod +x /usr/local/bin/nova
+
 # ── Docker CLI (no daemon) ───────────────────────────────────────────
 RUN curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker.gpg \
     && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" \
