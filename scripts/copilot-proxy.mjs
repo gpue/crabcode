@@ -153,10 +153,38 @@ const server = http.createServer(async (req, res) => {
 
     console.log(`[copilot-proxy] ${req.method} ${req.url}`);
     res.writeHead(upstream.status, headers);
-    console.log(`[copilot-proxy] upstream status: ${upstream.status}`);
 
     if (upstream.body) {
-      Readable.fromWeb(upstream.body).pipe(res);
+      const readable = Readable.fromWeb(upstream.body);
+      const isStream = headers["content-type"]?.includes("text/event-stream");
+
+      if (isStream) {
+        // Inject missing "object" field required by OpenAI streaming spec.
+        // GitHub Copilot API omits it; CrabTalk's SSE parser requires it.
+        let remainder = "";
+        readable.on("data", (chunk) => {
+          const text = remainder + chunk.toString("utf8");
+          const lines = text.split("\n");
+          remainder = lines.pop();
+          for (const line of lines) {
+            if (line.startsWith("data: ") && line !== "data: [DONE]") {
+              try {
+                const obj = JSON.parse(line.slice(6));
+                if (!obj.object) obj.object = "chat.completion.chunk";
+                res.write("data: " + JSON.stringify(obj) + "\n\n");
+              } catch {
+                res.write(line + "\n");
+              }
+            } else {
+              res.write(line + "\n");
+            }
+          }
+        });
+        readable.on("end", () => { if (remainder) res.write(remainder); res.end(); });
+        readable.on("error", () => res.end());
+      } else {
+        readable.pipe(res);
+      }
     } else {
       res.end();
     }

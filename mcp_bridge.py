@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import signal
@@ -734,9 +735,49 @@ app.add_middleware(
 )
 
 
-@app.on_event("startup")
-async def _startup() -> None:
+# Build the MCP sub-app once so we can reference its session_manager in the lifespan
+_mcp_sub_app = mcp.streamable_http_app()
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(application: FastAPI):  # noqa: ARG001
     _ensure_db()
+    # The MCP streamable-HTTP session manager needs its task group started.
+    # We enter its lifespan context manually since FastAPI does not propagate
+    # sub-application lifespans when using app.mount().
+    async with mcp.session_manager.run():
+        yield
+
+
+app = FastAPI(title="crabcode", lifespan=_lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.middleware("http")
+async def _normalize_mcp_accept(request, call_next):
+    """Ensure MCP sub-app always sees 'application/json' in Accept.
+
+    CrabTalk sends 'Accept: text/event-stream' for post-initialize requests,
+    but FastMCP with json_response=True requires 'application/json'.
+    We normalise the header so both transports work.
+    """
+    if request.url.path.startswith("/mcp-root"):
+        accept = request.headers.get("accept", "")
+        if "application/json" not in accept:
+            # Rebuild the ASGI scope headers with the fixed Accept value
+            new_accept = (accept + ", application/json").lstrip(", ").encode()
+            new_headers = [
+                (k, v) for k, v in request.scope["headers"] if k.lower() != b"accept"
+            ]
+            new_headers.append((b"accept", new_accept))
+            request.scope["headers"] = new_headers
+    return await call_next(request)
 
 
 @app.get("/board")
@@ -974,7 +1015,7 @@ async def terminal_interrupt_internal() -> dict[str, Any]:
     return {"ok": True, "signaled": True}
 
 
-app.mount("/mcp-root", mcp.streamable_http_app())
+app.mount("/mcp-root", _mcp_sub_app)
 
 
 if __name__ == "__main__":

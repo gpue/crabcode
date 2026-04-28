@@ -28,6 +28,7 @@ fi
 
 export BASE_PATH="${BASE_PATH:-}"
 export OPENCODE_PORT="${OPENCODE_PORT:-4096}"
+export OPENCHAMBER_PORT="${OPENCHAMBER_PORT:-3000}"
 export MCP_BRIDGE_PORT="${MCP_BRIDGE_PORT:-8081}"
 export WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 export OPENCODE_XDG_ROOT="${WORKSPACE_DIR}/.opencode"
@@ -71,6 +72,16 @@ if [ -d "${PERSISTENT_DATA}/opencode" ]; then
         timeout 60 cp -a "${PERSISTENT_DATA}/opencode/storage" "${XDG_DATA_HOME}/opencode/" 2>/dev/null || true
     fi
     echo "[opencode] Restored session data from persistent storage"
+fi
+
+# Restore OpenChamber config and data from persistent storage
+if [ -d "${PERSISTENT_DATA}/openchamber/config" ]; then
+    timeout 30 cp -a "${PERSISTENT_DATA}/openchamber/config/." "${HOME}/.config/openchamber/" 2>/dev/null || true
+    echo "[openchamber] Restored config from persistent storage"
+fi
+if [ -d "${PERSISTENT_DATA}/openchamber/data" ]; then
+    timeout 30 cp -a "${PERSISTENT_DATA}/openchamber/data/." "${HOME}/.local/share/openchamber/" 2>/dev/null || true
+    echo "[openchamber] Restored data from persistent storage"
 fi
 
 # Clean up large dirs that should never be persisted (runs in background, non-blocking).
@@ -165,12 +176,28 @@ sync_session_data() {
     if [ -d "${XDG_DATA_HOME}/opencode/storage" ]; then
         cp -a "${XDG_DATA_HOME}/opencode/storage" "${PERSISTENT_DATA}/opencode/" 2>/dev/null || true
     fi
+
+    # OpenChamber config + data
+    for d in \
+        "${HOME}/.config/openchamber" \
+        "${HOME}/.local/share/openchamber"; do
+        if [ -d "$d" ]; then
+            if [[ "$d" == */.config/* ]]; then
+                mkdir -p "${PERSISTENT_DATA}/openchamber/config"
+                cp -a "$d/." "${PERSISTENT_DATA}/openchamber/config/" 2>/dev/null || true
+            else
+                mkdir -p "${PERSISTENT_DATA}/openchamber/data"
+                cp -a "$d/." "${PERSISTENT_DATA}/openchamber/data/" 2>/dev/null || true
+            fi
+        fi
+    done
 }
 cleanup() {
     echo "Shutting down..."
     sync_session_data
     kill "$TAILSCALE_PID" "$MCP_PID" "$OPENCODE_PID" "$CRABTALK_PID" \
-         "$COPILOT_PROXY_PID" "$TELEGRAM_PID" "$LINEAR_AGENT_PID" "$SYNC_PID" 2>/dev/null || true
+         "$COPILOT_PROXY_PID" "$TELEGRAM_PID" "$LINEAR_AGENT_PID" "$SYNC_PID" \
+         "${OPENCHAMBER_PID:-}" 2>/dev/null || true
     wait 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
@@ -260,7 +287,8 @@ node /app/scripts/linear-agent.mjs &
 LINEAR_AGENT_PID=$!
 
 # ── MCP bridge server ────────────────────────────────────────────
-python3 /app/mcp_bridge.py &
+# Use local tmpfs for SQLite state to avoid Azure File Share locking issues
+MCP_BRIDGE_STATE_DIR=/tmp/mcp-bridge-state python3 /app/mcp_bridge.py &
 MCP_PID=$!
 
 # ── OpenCode web UI ──────────────────────────────────────────────
@@ -280,6 +308,14 @@ echo "[opencode] Starting in ${WORKSPACE_DIR}"
     sleep 3
 done) &
 OPENCODE_PID=$!
+
+# ── OpenChamber UI ───────────────────────────────────────────────────
+# Connects to the already-running OpenCode backend (OPENCODE_SKIP_START=true)
+# Only reachable over Tailscale — no UI password needed.
+log "Starting OpenChamber UI..." 2>/dev/null || echo "[openchamber] Starting OpenChamber UI..."
+OPENCODE_PORT="${OPENCODE_PORT}" OPENCODE_SKIP_START=true \
+    openchamber serve --port "${OPENCHAMBER_PORT}" --host 0.0.0.0 --foreground &
+OPENCHAMBER_PID=$!
 
 # Sync once after OpenCode has had time to write auth.json on first connect
 (sleep 30 && sync_session_data && echo "[opencode] Early sync completed") &

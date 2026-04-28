@@ -31,6 +31,11 @@
         "LINEAR_API_KEY": "{env:LINEAR_API_KEY}",
         "LINEAR_TEAM_ID": "{env:LINEAR_TEAM_ID}"
       }
+    },
+    "crabcode-bridge": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8081/mcp-root/",
+      "enabled": true
     }
   }
 }
