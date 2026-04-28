@@ -69,7 +69,124 @@ async function resolveTeamId(teamId) {
   return resolved;
 }
 
+// ── Issue identifier resolution (e.g. "CRB-10" → UUID) ───────────────────────
+
+async function resolveIssueId(idOrIdentifier) {
+  if (!idOrIdentifier) throw new Error("Issue ID or identifier is required.");
+  // Already a UUID
+  if (/^[0-9a-f-]{36}$/.test(idOrIdentifier)) return idOrIdentifier;
+  // Treat as human identifier like "CRB-10"
+  const data = await gql(
+    `query ResolveIssue($id: String!) { issue(id: $id) { id } }`,
+    { id: idOrIdentifier }
+  );
+  if (!data.issue) throw new Error(`Issue not found: "${idOrIdentifier}"`);
+  return data.issue.id;
+}
+
 // ── Tool implementations ──────────────────────────────────────────────────────
+
+async function getIssue({ id }) {
+  const data = await gql(
+    `query GetIssue($id: String!) {
+      issue(id: $id) {
+        id identifier title description priority url
+        createdAt updatedAt dueDate estimate
+        state { name }
+        assignee { displayName email }
+        team { name key }
+        labels { nodes { name } }
+        parent { identifier title }
+        comments(first: 25, orderBy: createdAt) {
+          nodes {
+            id createdAt
+            user { displayName }
+            body
+          }
+        }
+      }
+    }`,
+    { id }
+  );
+  if (!data.issue) throw new Error(`Issue not found: "${id}"`);
+  const i = data.issue;
+  const lines = [
+    `[${i.identifier}] ${i.title}`,
+    `  Status:   ${i.state?.name ?? "—"}`,
+    `  Priority: ${i.priority ?? "—"}`,
+    `  Assignee: ${i.assignee ? `${i.assignee.displayName} <${i.assignee.email}>` : "—"}`,
+    `  Team:     ${i.team ? `${i.team.name} (${i.team.key})` : "—"}`,
+    `  Labels:   ${i.labels?.nodes?.map((l) => l.name).join(", ") || "—"}`,
+    `  Estimate: ${i.estimate ?? "—"}`,
+    `  Due:      ${i.dueDate ?? "—"}`,
+    `  Parent:   ${i.parent ? `[${i.parent.identifier}] ${i.parent.title}` : "—"}`,
+    `  Created:  ${i.createdAt}`,
+    `  Updated:  ${i.updatedAt}`,
+    `  URL:      ${i.url}`,
+    ``,
+    `## Description`,
+    i.description || "(no description)",
+  ];
+  if (i.comments?.nodes?.length) {
+    lines.push(``, `## Comments (${i.comments.nodes.length})`);
+    for (const c of i.comments.nodes) {
+      lines.push(``, `### ${c.user?.displayName ?? "unknown"} — ${c.createdAt}`, c.body);
+    }
+  }
+  return lines.join("\n");
+}
+
+async function getIssueComments({ id, limit = 50 }) {
+  const uuid = await resolveIssueId(id);
+  const data = await gql(
+    `query GetComments($id: String!, $first: Int!) {
+      issue(id: $id) {
+        identifier title
+        comments(first: $first, orderBy: createdAt) {
+          nodes {
+            id createdAt
+            user { displayName }
+            body
+          }
+        }
+      }
+    }`,
+    { id: uuid, first: limit }
+  );
+  if (!data.issue) throw new Error(`Issue not found: "${id}"`);
+  const { identifier, title, comments } = data.issue;
+  if (!comments.nodes.length) return `No comments on [${identifier}] ${title}`;
+  return (
+    `[${identifier}] ${title} — ${comments.nodes.length} comment(s)\n\n` +
+    comments.nodes
+      .map((c) => `### ${c.user?.displayName ?? "unknown"} — ${c.createdAt}\n${c.body}`)
+      .join("\n\n")
+  );
+}
+
+async function listTeams() {
+  const data = await gql(`{ teams { nodes { id key name } } }`);
+  return data.teams.nodes
+    .map((t) => `${t.key}  ${t.name}  (${t.id})`)
+    .join("\n");
+}
+
+async function listStates({ teamId }) {
+  const resolvedTeamId = await resolveTeamId(teamId || DEFAULT_TEAM_ID);
+  if (!resolvedTeamId) throw new Error("teamId is required.");
+  const data = await gql(
+    `query ListStates($teamId: String!) {
+      team(id: $teamId) {
+        states { nodes { id name type position } }
+      }
+    }`,
+    { teamId: resolvedTeamId }
+  );
+  return data.team.states.nodes
+    .sort((a, b) => a.position - b.position)
+    .map((s) => `${s.name}  [${s.type}]  (${s.id})`)
+    .join("\n");
+}
 
 async function createIssue({ title, teamId, description, priority, status }) {
   const resolvedTeamId = teamId || DEFAULT_TEAM_ID;
@@ -88,6 +205,7 @@ async function createIssue({ title, teamId, description, priority, status }) {
 }
 
 async function updateIssue({ id, title, description, priority, status }) {
+  const uuid = await resolveIssueId(id);
   const input = {};
   if (title !== undefined) input.title = title;
   if (description !== undefined) input.description = description;
@@ -98,7 +216,7 @@ async function updateIssue({ id, title, description, priority, status }) {
     `mutation UpdateIssue($id: String!, $input: IssueUpdateInput!) {
       issueUpdate(id: $id, input: $input) { success issue { id identifier url title } }
     }`,
-    { id, input }
+    { id: uuid, input }
   );
   const issue = data.issueUpdate.issue;
   return `Updated issue ${issue.identifier}: ${issue.title}\nURL: ${issue.url}`;
@@ -160,9 +278,10 @@ async function searchIssues({
         `[${i.identifier}] ${i.title}\n` +
         `  Status: ${i.state?.name ?? "—"}  Priority: ${i.priority ?? "—"}  ` +
         `Assignee: ${i.assignee?.displayName ?? "—"}  Team: ${i.team?.name ?? "—"}\n` +
-        `  URL: ${i.url}`
+        `  URL: ${i.url}` +
+        (i.description ? `\n\n${i.description}` : "")
     )
-    .join("\n\n");
+    .join("\n\n---\n\n");
 }
 
 async function getUserIssues({ userId, includeArchived, limit = 50 }) {
@@ -197,13 +316,14 @@ async function getUserIssues({ userId, includeArchived, limit = 50 }) {
 }
 
 async function addComment({ issueId, body, createAsUser, displayIconUrl }) {
+  const uuid = await resolveIssueId(issueId);
   const data = await gql(
     `mutation AddComment($input: CommentCreateInput!) {
       commentCreate(input: $input) { success comment { id url } }
     }`,
     {
       input: {
-        issueId,
+        issueId: uuid,
         body,
         ...(createAsUser ? { createAsUser } : {}),
         ...(displayIconUrl ? { displayIconUrl } : {}),
@@ -216,6 +336,45 @@ async function addComment({ issueId, body, createAsUser, displayIconUrl }) {
 // ── MCP tool registry ─────────────────────────────────────────────────────────
 
 const TOOLS = [
+  {
+    name: "linear_get_issue",
+    description:
+      "Retrieves a single Linear issue by ID or identifier (e.g. 'CRB-10'). Returns full details: description, comments, labels, assignee, status, priority, estimates, dates.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Issue ID (UUID) or identifier (e.g. 'CRB-10')" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "linear_get_issue_comments",
+    description: "Retrieves all comments for a Linear issue by ID or identifier.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Issue ID (UUID) or identifier (e.g. 'CRB-10')" },
+        limit: { type: "number", description: "Max comments to return (default: 50)" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "linear_list_teams",
+    description: "Lists all Linear teams with their key, name, and UUID.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "linear_list_states",
+    description: "Lists workflow states for a team (useful for finding state IDs when creating/updating issues).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        teamId: { type: "string", description: "Team ID or key (e.g., 'CRAB'). Optional if LINEAR_TEAM_ID is set." },
+      },
+    },
+  },
   {
     name: "linear_create_issue",
     description:
@@ -238,11 +397,11 @@ const TOOLS = [
   {
     name: "linear_update_issue",
     description:
-      "Updates an existing Linear issue. Requires the issue ID (not the identifier).",
+      "Updates an existing Linear issue. Accepts issue UUID or human identifier (e.g. 'CRB-10').",
     inputSchema: {
       type: "object",
       properties: {
-        id: { type: "string", description: "Issue ID (UUID, e.g., 'abc123')" },
+        id: { type: "string", description: "Issue UUID or identifier (e.g. 'CRB-10')" },
         title: { type: "string", description: "New title" },
         description: { type: "string", description: "New description (markdown supported)" },
         priority: { type: "number", description: "New priority: 0=No priority, 1=Urgent, 2=High, 3=Medium, 4=Low" },
@@ -285,11 +444,11 @@ const TOOLS = [
   },
   {
     name: "linear_add_comment",
-    description: "Adds a markdown comment to a Linear issue.",
+    description: "Adds a markdown comment to a Linear issue. Accepts issue UUID or identifier (e.g. 'CRB-10').",
     inputSchema: {
       type: "object",
       properties: {
-        issueId: { type: "string", description: "Issue ID" },
+        issueId: { type: "string", description: "Issue UUID or identifier (e.g. 'CRB-10')" },
         body: { type: "string", description: "Comment text (markdown)" },
         createAsUser: { type: "string", description: "Custom username for comment" },
         displayIconUrl: { type: "string", description: "Avatar URL for comment" },
@@ -300,6 +459,10 @@ const TOOLS = [
 ];
 
 const TOOL_HANDLERS = {
+  linear_get_issue: getIssue,
+  linear_get_issue_comments: getIssueComments,
+  linear_list_teams: listTeams,
+  linear_list_states: listStates,
   linear_create_issue: createIssue,
   linear_update_issue: updateIssue,
   linear_search_issues: searchIssues,
