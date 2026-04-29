@@ -128,12 +128,21 @@ async function fetchWithRetry(url, options, attempt = 0) {
 
 // ── HTTP server ─────────────────────────────────────────────────
 
+let lastFailedBody = null;
+
 const server = http.createServer(async (req, res) => {
   // Health check
   if (req.url === "/health") {
     const token = getGitHubToken();
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ status: "ok", hasToken: !!token }));
+    return;
+  }
+
+  // Debug endpoint: return last failed request body
+  if (req.url === "/debug/last-request") {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(lastFailedBody || '{"error":"no failed request captured yet"}');
     return;
   }
 
@@ -177,6 +186,17 @@ const server = http.createServer(async (req, res) => {
           if (fields.length) console.log(`[copilot-proxy] Extra fields: ${fields.join(', ')}`);
           // Log total tools JSON size
           console.log(`[copilot-proxy] Tools total size: ${JSON.stringify(parsed.tools).length} bytes`);
+          // Log tool names and check for problematic schema features
+          const toolNames = parsed.tools.map(t => t.function?.name).join(', ');
+          console.log(`[copilot-proxy] Tool names: ${toolNames}`);
+          // Check for anyOf/oneOf/$ref in schemas
+          const toolsStr = JSON.stringify(parsed.tools);
+          const hasAnyOf = toolsStr.includes('"anyOf"');
+          const hasOneOf = toolsStr.includes('"oneOf"');
+          const hasRef = toolsStr.includes('"$ref"');
+          const hasAllOf = toolsStr.includes('"allOf"');
+          const hasEnum = toolsStr.includes('"enum"');
+          console.log(`[copilot-proxy] Schema features: anyOf=${hasAnyOf} oneOf=${hasOneOf} $ref=${hasRef} allOf=${hasAllOf} enum=${hasEnum}`);
         }
       } catch {}
     }
@@ -196,6 +216,10 @@ const server = http.createServer(async (req, res) => {
 
     console.log(`[copilot-proxy] ← ${upstream.status} ${upstream.statusText}`);
 
+    // Save failed request body for debugging
+    if (upstream.status >= 400 && body) {
+      lastFailedBody = body.toString("utf8");
+    }
     const headers = {};
     upstream.headers.forEach((value, key) => {
       if (key.toLowerCase() !== "content-length") headers[key] = value;
