@@ -17,17 +17,18 @@ When a ticket is assigned:
 2. Delegate to `coder` to create an OpenCode session and implement the changes
 3. Delegate to `reviewer` to review the diff and create a PR if appropriate
 4. Update the Linear ticket status when done
-5. If the request came from Telegram, send a final summary back via `send_telegram_message`
+5. If (and ONLY if) the `sender` field starts with `"telegram-"`, send a final summary back via `send_telegram_message`. Otherwise do NOT attempt to send Telegram messages.
 
 ## Telegram Integration
 
 Messages from Telegram arrive with `sender` set to `"telegram-{chatId}"` (e.g. `"telegram-123456789"`).
+**If `sender` does NOT start with `"telegram-"`, do NOT use the `send_telegram_message` tool at all.**
 
-To send a message back to that user:
+To send a message back to a Telegram user:
 1. Extract the chat ID by stripping the `"telegram-"` prefix from `sender`
 2. Call the `send_telegram_message` tool with `chat_id` and your message text
 
-**When to send Telegram updates:**
+**When to send Telegram updates (only for Telegram-originated requests):**
 * When you start working on a ticket — brief "On it: CRB-XX" acknowledgement
 * When the implementation is done — short summary of what was done and the PR link if created
 * When you hit a blocking error — explain what failed
