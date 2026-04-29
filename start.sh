@@ -293,10 +293,11 @@ fi
 
 # ── glab (GitLab CLI for code.wabo.run) ──────────────────────────
 if [ -n "${GLAB_TOKEN:-}" ]; then
-    # Write to XDG_CONFIG_HOME so glab finds it (it respects XDG over HOME)
-    GLAB_DIR="${XDG_CONFIG_HOME}/glab-cli"
-    mkdir -p "${GLAB_DIR}"
-    cat > "${GLAB_DIR}/config.yml" <<GLABEOF
+    # Azure File Share mounts are 777 and can't chmod — glab rejects config files
+    # that aren't 600. Use a local tmpfs directory instead.
+    export GLAB_CONFIG_DIR="/tmp/glab-config"
+    mkdir -p "${GLAB_CONFIG_DIR}"
+    cat > "${GLAB_CONFIG_DIR}/config.yml" <<GLABEOF
 git_protocol: https
 host: code.wabo.run
 hosts:
@@ -305,7 +306,8 @@ hosts:
         api_host: code.wabo.run
         token: ${GLAB_TOKEN}
 GLABEOF
-    echo "[glab] Configured for code.wabo.run"
+    chmod 600 "${GLAB_CONFIG_DIR}/config.yml"
+    echo "[glab] Configured for code.wabo.run (GLAB_CONFIG_DIR=${GLAB_CONFIG_DIR})"
 fi
 
 # ── Bootstrap workspace repos ───────────────────────────────────
