@@ -1,9 +1,10 @@
-:80 {
-	handle /health {
-		respond "ok" 200
-	}
+{
+	order route first
+}
 
-	# MCP bridge on a distinct path (for CrabTalk/external access)
+:80 {
+	respond /health "ok" 200
+
 	handle_path /mcp-bridge/* {
 		reverse_proxy 127.0.0.1:8081
 	}
@@ -12,15 +13,14 @@
 		reverse_proxy 127.0.0.1:8081
 	}
 
-	# Use route to enforce top-down evaluation order
-	route {
-		# OpenCode API – direct to OpenCode (port 4096)
-		@opencode_api path /api/event /api/event/* /api/session /api/session/* /api/config /api/config/* /api/app/*
-		reverse_proxy @opencode_api 127.0.0.1:4096 {
+	@opencode path /api/event /api/event/* /api/session /api/session/* /api/config /api/app/*
+	handle @opencode {
+		reverse_proxy 127.0.0.1:4096 {
 			flush_interval -1
 		}
+	}
 
-		# Everything else goes to OpenChamber UI (port 3000)
+	handle {
 		reverse_proxy 127.0.0.1:3000 {
 			flush_interval -1
 			header_down -Content-Security-Policy

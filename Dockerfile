@@ -134,7 +134,7 @@ COPY --chown=crabcode:crabcode crabtalk/agents/ /home/crabcode/.crabtalk/local/a
 # ── Protobuf stubs for CrabTalk bridge ──────────────────────────────
 COPY --chown=crabcode:crabcode proto/ /app/proto/
 
-# ── Application files ──────────────────────────────────────────────
+# ── Application files (cache-bust: route-fix-v2) ─────────────────────
 COPY --chown=crabcode:crabcode opencode.json /app/opencode.json
 COPY --chown=crabcode:crabcode mcp_bridge.py /app/mcp_bridge.py
 COPY --chown=crabcode:crabcode scripts/ /app/scripts/
