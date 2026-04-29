@@ -368,6 +368,9 @@ echo "[openchamber] Starting OpenChamber UI..."
     # Kill any stale process on port 3000 before attempting to start
     fuser -k ${OPENCHAMBER_PORT}/tcp 2>/dev/null || true
     sleep 1
+    # Unset ALL_PROXY entirely — Node.js proxy libraries may not respect NO_PROXY
+    # correctly for localhost, causing OpenChamber to fail connecting to OpenCode.
+    ALL_PROXY="" all_proxy="" HTTP_PROXY="" HTTPS_PROXY="" http_proxy="" https_proxy="" \
     NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
         OPENCODE_PORT="${OPENCODE_PORT}" OPENCODE_SKIP_START=true \
         openchamber serve --port "${OPENCHAMBER_PORT}" --host 0.0.0.0 --foreground || true
