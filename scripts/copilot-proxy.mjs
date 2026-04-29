@@ -68,12 +68,19 @@ async function readBody(req) {
   return Buffer.concat(chunks);
 }
 
+const MAX_TOOLS = 20; // GitHub Copilot API rejects requests with too many tools
+
 function normalizeBody(buffer) {
   if (buffer.length === 0) return undefined;
   try {
     const payload = JSON.parse(buffer.toString("utf8"));
     if (payload && typeof payload === "object") {
       if (!payload.model) payload.model = DEFAULT_MODEL;
+      // Truncate tools to avoid Copilot API 400 errors
+      if (Array.isArray(payload.tools) && payload.tools.length > MAX_TOOLS) {
+        console.log(`[copilot-proxy] Truncating tools from ${payload.tools.length} to ${MAX_TOOLS}`);
+        payload.tools = payload.tools.slice(0, MAX_TOOLS);
+      }
       return Buffer.from(JSON.stringify(payload));
     }
   } catch {}
