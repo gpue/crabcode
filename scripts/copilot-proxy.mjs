@@ -82,8 +82,12 @@ function normalizeBody(buffer) {
           if (tool.function) {
             // Remove 'strict' field — Copilot API rejects it
             delete tool.function.strict;
-            // Remove additionalProperties from parameters schema recursively
-            stripAdditionalProperties(tool.function.parameters);
+            // Ensure description is non-empty — Copilot API rejects empty descriptions
+            if (!tool.function.description) {
+              tool.function.description = tool.function.name.replace(/_/g, ' ');
+            }
+            // Remove 'title' from parameters schema recursively — Copilot rejects it
+            stripFields(tool.function.parameters);
           }
         }
       }
@@ -97,15 +101,16 @@ function normalizeBody(buffer) {
   return buffer;
 }
 
-function stripAdditionalProperties(obj) {
+function stripFields(obj) {
   if (!obj || typeof obj !== 'object') return;
   delete obj.additionalProperties;
+  delete obj.title;
   if (obj.properties) {
     for (const v of Object.values(obj.properties)) {
-      stripAdditionalProperties(v);
+      stripFields(v);
     }
   }
-  if (obj.items) stripAdditionalProperties(obj.items);
+  if (obj.items) stripFields(obj.items);
 }
 
 // ── Retry with backoff ──────────────────────────────────────────
@@ -128,21 +133,12 @@ async function fetchWithRetry(url, options, attempt = 0) {
 
 // ── HTTP server ─────────────────────────────────────────────────
 
-let lastFailedBody = null;
-
 const server = http.createServer(async (req, res) => {
   // Health check
   if (req.url === "/health") {
     const token = getGitHubToken();
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ status: "ok", hasToken: !!token }));
-    return;
-  }
-
-  // Debug endpoint: return last failed request body
-  if (req.url === "/debug/last-request") {
-    res.writeHead(200, { "content-type": "application/json" });
-    res.end(lastFailedBody || '{"error":"no failed request captured yet"}');
     return;
   }
 
@@ -170,34 +166,11 @@ const server = http.createServer(async (req, res) => {
 
     const upstreamUrl = `${COPILOT_API}${upstreamPath}${url.search}`;
 
-    // Log request details for debugging
+    // Log request details
     if (body) {
       try {
         const parsed = JSON.parse(body.toString("utf8"));
-        console.log(`[copilot-proxy] → ${upstreamUrl} model=${parsed.model} messages=${parsed.messages?.length} tools=${parsed.tools?.length || 0} stream=${parsed.stream} bodySize=${body.length} token=${token.slice(0,8)}...`);
-        if (parsed.messages?.length > 0) {
-          for (const m of parsed.messages) {
-            const content = typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content).length;
-            console.log(`[copilot-proxy] msg: role=${m.role} contentType=${typeof m.content} len=${content}`);
-          }
-        }
-        if (parsed.tools?.length > 0) {
-          const fields = Object.keys(parsed).filter(k => !['model','messages','tools','stream','temperature','max_tokens','top_p','stop'].includes(k));
-          if (fields.length) console.log(`[copilot-proxy] Extra fields: ${fields.join(', ')}`);
-          // Log total tools JSON size
-          console.log(`[copilot-proxy] Tools total size: ${JSON.stringify(parsed.tools).length} bytes`);
-          // Log tool names and check for problematic schema features
-          const toolNames = parsed.tools.map(t => t.function?.name).join(', ');
-          console.log(`[copilot-proxy] Tool names: ${toolNames}`);
-          // Check for anyOf/oneOf/$ref in schemas
-          const toolsStr = JSON.stringify(parsed.tools);
-          const hasAnyOf = toolsStr.includes('"anyOf"');
-          const hasOneOf = toolsStr.includes('"oneOf"');
-          const hasRef = toolsStr.includes('"$ref"');
-          const hasAllOf = toolsStr.includes('"allOf"');
-          const hasEnum = toolsStr.includes('"enum"');
-          console.log(`[copilot-proxy] Schema features: anyOf=${hasAnyOf} oneOf=${hasOneOf} $ref=${hasRef} allOf=${hasAllOf} enum=${hasEnum}`);
-        }
+        console.log(`[copilot-proxy] → ${upstreamUrl} model=${parsed.model} messages=${parsed.messages?.length} tools=${parsed.tools?.length || 0} stream=${parsed.stream}`);
       } catch {}
     }
 
@@ -215,11 +188,6 @@ const server = http.createServer(async (req, res) => {
     });
 
     console.log(`[copilot-proxy] ← ${upstream.status} ${upstream.statusText}`);
-
-    // Save failed request body for debugging
-    if (upstream.status >= 400 && body) {
-      lastFailedBody = body.toString("utf8");
-    }
     const headers = {};
     upstream.headers.forEach((value, key) => {
       if (key.toLowerCase() !== "content-length") headers[key] = value;

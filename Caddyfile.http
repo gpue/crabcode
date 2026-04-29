@@ -1,11 +1,4 @@
 :80 {
-	# Copilot proxy debug endpoint
-	handle /copilot-debug/* {
-		reverse_proxy 127.0.0.1:18791 {
-			rewrite /debug/last-request
-		}
-	}
-
 	# MCP bridge on a distinct path (for CrabTalk/external access)
 	handle_path /mcp-bridge/* {
 		reverse_proxy 127.0.0.1:8081
