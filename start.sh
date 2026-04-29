@@ -347,11 +347,26 @@ for i in $(seq 1 30); do
     sleep 2
 done
 
+# Kill any stale openchamber process and remove PID files from previous runs
+pkill -f "openchamber serve" 2>/dev/null || true
+rm -f /tmp/openchamber.pid "${HOME}/.local/share/openchamber/openchamber.pid" \
+      "${HOME}/.config/openchamber/openchamber.pid" 2>/dev/null || true
+# Free port 3000 if anything is holding it
+fuser -k ${OPENCHAMBER_PORT}/tcp 2>/dev/null || true
+sleep 1
+
 echo "[openchamber] Starting OpenChamber UI..."
 # NO_PROXY ensures openchamber connects directly to OpenCode on localhost
 # without being routed through the Tailscale SOCKS5 proxy (which rejects
 # localhost connections).
 (while true; do
+    # Kill any stale process on port 3000 before attempting to start
+    STALE_PID=$(lsof -ti :${OPENCHAMBER_PORT} 2>/dev/null || true)
+    if [ -n "$STALE_PID" ]; then
+        echo "[openchamber] Killing stale process on port ${OPENCHAMBER_PORT} (PID: $STALE_PID)"
+        kill $STALE_PID 2>/dev/null || true
+        sleep 1
+    fi
     NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
         OPENCODE_PORT="${OPENCODE_PORT}" OPENCODE_SKIP_START=true \
         openchamber serve --port "${OPENCHAMBER_PORT}" --host 0.0.0.0 --foreground || true

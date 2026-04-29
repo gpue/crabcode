@@ -36,7 +36,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl gh gnupg git make python3 python3-pip python3-venv \
         openssh-client netcat-openbsd iputils-ping dnsutils traceroute \
-        gettext-base jq ripgrep iptables iproute2 \
+        gettext-base jq ripgrep iptables iproute2 psmisc \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Node.js 22 ──────────────────────────────────────────────────────
