@@ -8,7 +8,7 @@ on:
 
 env:
   RESOURCE_GROUP: wabo
-  CONTAINER_NAME: crabcode-aci
+  CONTAINER_NAME: crabcode
   IMAGE_NAME: waboreg.azurecr.io/crabcode
   LOCATION: westeurope
 
@@ -44,7 +44,7 @@ jobs:
           cat > /tmp/aci-deploy.yaml <<'YAMLEOF'
           apiVersion: "2023-05-01"
           location: westeurope
-          name: crabcode-aci
+          name: crabcode
           properties:
             containers:
               - name: crabcode
@@ -58,7 +58,7 @@ jobs:
                     privileged: true
                   environmentVariables:
                     - name: TS_HOSTNAME
-                      value: crabcode-aci
+                      value: crabcode
                     - name: GH_TOKEN
                       secureValue: GH_TOKEN_PLACEHOLDER
                     - name: LINEAR_API_KEY
