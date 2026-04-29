@@ -375,15 +375,9 @@ MCP_BRIDGE_STATE_DIR=/tmp/mcp-bridge-state python3 /app/mcp_bridge.py &
 MCP_PID=$!
 
 # ── OpenCode web UI ──────────────────────────────────────────────
-# Run from /workspace/crabcode as the primary project (OpenChamber expects sessions scoped to this dir).
-# Initialize as git repo if needed (OpenCode requires a git context)
-OPENCODE_DIR="${WORKSPACE_DIR}/crabcode"
-if [ ! -d "${OPENCODE_DIR}" ]; then
-    OPENCODE_DIR="${WORKSPACE_DIR}"
-fi
-if [ ! -d "${OPENCODE_DIR}/.git" ]; then
-    (cd "${OPENCODE_DIR}" && git init -b main && git commit --allow-empty -m "workspace root" 2>/dev/null) || true
-fi
+# Run from /workspace so OpenCode has access to all project repos.
+# /workspace/opencode.json provides full provider + MCP config.
+OPENCODE_DIR="${WORKSPACE_DIR}"
 echo "[opencode] Starting in ${OPENCODE_DIR}"
 (cd "${OPENCODE_DIR}" && while true; do
     echo "[opencode] Launching opencode web..."
