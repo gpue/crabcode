@@ -341,11 +341,16 @@ OPENCODE_PID=$!
 echo "[openchamber] Waiting for OpenCode on port ${OPENCODE_PORT}..."
 for i in $(seq 1 30); do
     if nc -z 127.0.0.1 "${OPENCODE_PORT}" 2>/dev/null; then
-        echo "[openchamber] OpenCode ready"
-        break
+        # Verify the API actually responds, not just TCP open
+        if NO_PROXY=127.0.0.1 curl -s --max-time 2 http://127.0.0.1:${OPENCODE_PORT}/api/session >/dev/null 2>&1; then
+            echo "[openchamber] OpenCode API ready"
+            break
+        fi
     fi
     sleep 2
 done
+# Give OpenCode a moment to fully stabilize
+sleep 3
 
 # Kill any stale openchamber process and remove PID files from previous runs
 pkill -f "openchamber serve" 2>/dev/null || true
@@ -361,12 +366,8 @@ echo "[openchamber] Starting OpenChamber UI..."
 # localhost connections).
 (while true; do
     # Kill any stale process on port 3000 before attempting to start
-    STALE_PID=$(lsof -ti :${OPENCHAMBER_PORT} 2>/dev/null || true)
-    if [ -n "$STALE_PID" ]; then
-        echo "[openchamber] Killing stale process on port ${OPENCHAMBER_PORT} (PID: $STALE_PID)"
-        kill $STALE_PID 2>/dev/null || true
-        sleep 1
-    fi
+    fuser -k ${OPENCHAMBER_PORT}/tcp 2>/dev/null || true
+    sleep 1
     NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
         OPENCODE_PORT="${OPENCODE_PORT}" OPENCODE_SKIP_START=true \
         openchamber serve --port "${OPENCHAMBER_PORT}" --host 0.0.0.0 --foreground || true
