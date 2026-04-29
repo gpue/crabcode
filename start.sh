@@ -206,9 +206,7 @@ trap cleanup EXIT INT TERM
 # Tailscale state is persisted on the volume, but socket must be local
 mkdir -p "${WORKSPACE_DIR}/.tailscale" /tmp/tailscale
 tailscaled --state="${WORKSPACE_DIR}/.tailscale/${TS_HOSTNAME:-crabcode}.state" \
-           --socket=/tmp/tailscale/tailscaled.sock \
-           --tun=userspace-networking \
-           --socks5-server=localhost:1055 &
+           --socket=/tmp/tailscale/tailscaled.sock &
 TAILSCALE_PID=$!
 sleep 2
 
@@ -222,8 +220,7 @@ tailscale --socket=/tmp/tailscale/tailscaled.sock up \
 echo "[tailscale] Status: $(tailscale --socket=/tmp/tailscale/tailscaled.sock status --self 2>/dev/null | head -1)"
 
 # ── Provision TLS cert via tailscale cert ────────────────────────
-# In userspace networking mode, inbound Tailscale traffic is handled by
-# netstack which proxies to 127.0.0.1:<port>. So Caddy on :443 works fine.
+# With kernel TUN mode, Tailscale creates a real interface and Caddy on :443 works.
 # `tailscale cert` provisions a Let's Encrypt cert for <hostname>.<tailnet>.ts.net.
 # Requires "HTTPS certificates" to be enabled in the Tailscale admin console.
 TS_CERT_DIR=/tmp/tailscale-cert
@@ -247,17 +244,10 @@ else
     echo "[tailscale] WARNING: could not determine FQDN — HTTP only"
 fi
 
-# ── Route all traffic through Tailscale SOCKS5 proxy ────────────
-# Tailscale runs in userspace mode (no TUN device available in this container),
-# so the kernel has no route for 100.x.x.x. Setting ALL_PROXY makes curl,
-# python, kubectl, and all other HTTP clients transparently reach Tailscale peers.
-# Public internet traffic passes through the proxy normally.
-export ALL_PROXY=socks5h://localhost:1055
-export all_proxy=socks5h://localhost:1055
-# Write to /etc/environment so all new shells and processes inherit it
-grep -qxF 'ALL_PROXY=socks5h://localhost:1055' /etc/environment 2>/dev/null || \
-    printf 'ALL_PROXY=socks5h://localhost:1055\nall_proxy=socks5h://localhost:1055\n' >> /etc/environment
-echo "[tailscale] SOCKS5 proxy set: ALL_PROXY=socks5h://localhost:1055"
+# ── Tailscale kernel networking ──────────────────────────────────
+# With privileged mode + TUN device, Tailscale creates a real network interface.
+# No SOCKS5 proxy needed — 100.x.x.x routes work natively.
+echo "[tailscale] Running in kernel TUN mode (privileged container)"
 
 # ── Fix /etc/hosts for nova ──────────────────────────────────────
 # The container platform injects a stale LAN entry for 'nova' on every start.
