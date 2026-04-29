@@ -1,6 +1,5 @@
 :80 {
-	@health path /health
-	respond @health "ok" 200
+	respond /health "ok" 200
 
 	handle_path /mcp-bridge/* {
 		reverse_proxy 127.0.0.1:8081
@@ -10,19 +9,17 @@
 		reverse_proxy 127.0.0.1:8081
 	}
 
-	@opencode {
-		path /api/event /api/event/* /api/session /api/session/* /api/config /api/app/*
-	}
-	handle @opencode {
-		reverse_proxy 127.0.0.1:4096 {
-			flush_interval -1
-		}
-	}
-
 	handle {
-		reverse_proxy 127.0.0.1:3000 {
-			flush_interval -1
-			header_down -Content-Security-Policy
+		route {
+			@opencode path /api/event /api/event/* /api/session /api/session/* /api/config /api/app/*
+			reverse_proxy @opencode 127.0.0.1:4096 {
+				flush_interval -1
+			}
+
+			reverse_proxy 127.0.0.1:3000 {
+				flush_interval -1
+				header_down -Content-Security-Policy
+			}
 		}
 	}
 }
