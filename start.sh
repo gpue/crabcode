@@ -328,7 +328,7 @@ echo "[opencode] Starting in ${WORKSPACE_DIR}"
     echo "[opencode] Launching opencode web..."
     env opencode web \
         --port "${OPENCODE_PORT}" \
-        --hostname 127.0.0.1 \
+        --hostname 0.0.0.0 \
         --cors "*" || true
     echo "[opencode] Process exited, restarting in 3s..."
     sleep 3
