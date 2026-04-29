@@ -133,6 +133,14 @@ const server = http.createServer(async (req, res) => {
 
     const upstreamUrl = `${COPILOT_API}${upstreamPath}${url.search}`;
 
+    // Log request details for debugging
+    if (body) {
+      try {
+        const parsed = JSON.parse(body.toString("utf8"));
+        console.log(`[copilot-proxy] → ${upstreamUrl} model=${parsed.model} messages=${parsed.messages?.length} tools=${parsed.tools?.length || 0} stream=${parsed.stream} token=${token.slice(0,8)}...`);
+      } catch {}
+    }
+
     const upstream = await fetchWithRetry(upstreamUrl, {
       method: req.method,
       headers: {
@@ -145,6 +153,8 @@ const server = http.createServer(async (req, res) => {
       },
       body,
     });
+
+    console.log(`[copilot-proxy] ← ${upstream.status} ${upstream.statusText}`);
 
     const headers = {};
     upstream.headers.forEach((value, key) => {
