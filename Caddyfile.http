@@ -12,20 +12,15 @@
 		reverse_proxy 127.0.0.1:8081
 	}
 
-	# OpenCode real-time events (WebSocket + SSE fallback) – bypass OpenChamber
-	handle /api/event/* {
-		reverse_proxy 127.0.0.1:4096 {
+	# Use route to enforce top-down evaluation order
+	route {
+		# OpenCode API – direct to OpenCode (port 4096)
+		@opencode_api path /api/event /api/event/* /api/session /api/session/* /api/config /api/config/* /api/app/*
+		reverse_proxy @opencode_api 127.0.0.1:4096 {
 			flush_interval -1
 		}
-	}
-	handle /api/event {
-		reverse_proxy 127.0.0.1:4096 {
-			flush_interval -1
-		}
-	}
 
-	# Everything else goes to OpenChamber UI
-	handle /* {
+		# Everything else goes to OpenChamber UI (port 3000)
 		reverse_proxy 127.0.0.1:3000 {
 			flush_interval -1
 			header_down -Content-Security-Policy
