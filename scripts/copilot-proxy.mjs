@@ -87,10 +87,8 @@ function normalizeBody(buffer) {
           }
         }
       }
-      // Remove tool_choice if it's an unsupported format
-      if (payload.tool_choice && typeof payload.tool_choice === 'object' && payload.tool_choice.type === 'auto') {
-        payload.tool_choice = 'auto';
-      }
+      // Remove tool_choice — Copilot API may not support it
+      delete payload.tool_choice;
       // Remove stream_options — not supported by Copilot API
       delete payload.stream_options;
       return Buffer.from(JSON.stringify(payload));
@@ -174,6 +172,7 @@ const server = http.createServer(async (req, res) => {
           if (fields.length) console.log(`[copilot-proxy] Extra fields: ${fields.join(', ')}`);
           const t = parsed.tools[0];
           console.log(`[copilot-proxy] Tool[0] keys: ${JSON.stringify(Object.keys(t))}, fn keys: ${JSON.stringify(Object.keys(t.function || {}))}`);
+          if (parsed.tool_choice) console.log(`[copilot-proxy] tool_choice: ${JSON.stringify(parsed.tool_choice)}`);
         }
       } catch {}
     }
