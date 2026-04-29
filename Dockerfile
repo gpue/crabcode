@@ -92,7 +92,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends zip unzip openv
     && rm -rf /var/lib/apt/lists/*
 
 # ── glab (GitLab CLI) ───────────────────────────────────────────────
-RUN curl -fsSL "https://gitlab.com/gitlab-org/cli/-/releases/permalink/latest/downloads/glab_Linux_x86_64.tar.gz" \
+ARG GLAB_VERSION=1.93.0
+RUN curl -fsSL -L "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_amd64.tar.gz" \
     | tar xz -C /usr/local/bin bin/glab --strip-components=1 \
     && chmod +x /usr/local/bin/glab
 
