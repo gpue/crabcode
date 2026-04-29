@@ -22,6 +22,7 @@
  *   LINEAR_POLL_INTERVAL_MS - Poll interval in ms (default: 30000)
  *   OPENCODE_MCP_URL        - OpenCode MCP bridge URL (default: http://127.0.0.1:8081)
  */
+// version: 2
 
 const LINEAR_API_KEY = process.env.LINEAR_API_KEY;
 if (!LINEAR_API_KEY) {
@@ -34,6 +35,8 @@ const CRAB_USER_ID_OVERRIDE = process.env.LINEAR_CRAB_USER_ID || "";
 const LINEAR_TEAM_ID = process.env.LINEAR_TEAM_ID || "";
 const POLL_INTERVAL = parseInt(process.env.LINEAR_POLL_INTERVAL_MS || "30000", 10);
 const OPENCODE_URL = process.env.OPENCODE_MCP_URL || "http://127.0.0.1:8081";
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_NOTIFY_TARGET || "";
 
 // ── Project → repo routing ──────────────────────────────────────
 // Maps Linear project name (lowercased) to workspace repo path.
@@ -62,6 +65,84 @@ function log(level, msg, data) {
       ...data,
     })
   );
+}
+
+// ── Telegram notifications ───────────────────────────────────────
+
+async function sendTelegram(text) {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text, parse_mode: "Markdown" }),
+    });
+  } catch (err) {
+    log("warn", `Telegram notification failed: ${err.message}`);
+  }
+}
+
+// ── CrabTalk TCP helper (for classification) ─────────────────────
+
+import net from "node:net";
+import { crabtalk } from "../proto/crabtalk.js";
+
+const { ClientMessage, ServerMessage, AgentEventKind } = crabtalk.protocol;
+const CT_HOST = process.env.CRABTALK_HOST || "127.0.0.1";
+const CT_PORT = parseInt(process.env.CRABTALK_PORT || "6688", 10);
+
+function encodeCTMessage(message) {
+  const encoded = ClientMessage.encode(message).finish();
+  const lengthBuf = Buffer.alloc(4);
+  lengthBuf.writeUInt32BE(encoded.length, 0);
+  return Buffer.concat([lengthBuf, encoded]);
+}
+
+/**
+ * Send a short prompt to CrabTalk and return the text response.
+ * Used for lightweight classification without creating an OpenCode session.
+ */
+function askCrabTalk(prompt, timeoutMs = 30000) {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(CT_PORT, CT_HOST);
+    let buf = Buffer.alloc(0);
+    let text = "";
+    let done = false;
+
+    const finish = (err) => {
+      if (done) return;
+      done = true;
+      socket.destroy();
+      if (err) reject(err);
+      else resolve(text.trim());
+    };
+
+    socket.on("connect", () => {
+      socket.write(encodeCTMessage(ClientMessage.create({ subscribeEvents: {} })));
+      socket.write(encodeCTMessage(ClientMessage.create({
+        send: { content: prompt, sender: "linear-agent-classify", agent: "crabcode" },
+      })));
+    });
+
+    socket.on("data", (chunk) => {
+      buf = Buffer.concat([buf, chunk]);
+      while (buf.length >= 4) {
+        const len = buf.readUInt32BE(0);
+        if (buf.length < 4 + len) break;
+        const m = ServerMessage.decode(buf.subarray(4, 4 + len));
+        buf = buf.subarray(4 + len);
+        if (m.agentEvent) {
+          if (m.agentEvent.kind === AgentEventKind.TEXT_DELTA) text += m.agentEvent.content || "";
+          if (m.agentEvent.kind === AgentEventKind.DONE) { finish(); return; }
+        }
+        if (m.error) { finish(new Error(m.error.message || "CrabTalk error")); return; }
+      }
+    });
+
+    socket.on("error", finish);
+    socket.on("close", () => finish());
+    setTimeout(() => finish(new Error("CrabTalk classification timeout")), timeoutMs);
+  });
 }
 
 // ── Linear GraphQL API ──────────────────────────────────────────
@@ -244,38 +325,27 @@ async function resolveRepo(ticket) {
     }
   }
 
-  // 2. LLM fallback
+  // 2. CrabTalk LLM fallback
   const repoList = Object.entries(PROJECT_REPO_MAP)
     .map(([name, path]) => `- ${name}: ${path}`)
     .join("\n");
 
-  const classifyPrompt = `Given these repositories:\n${repoList}\n\nWhich repository does this ticket belong to? Reply with only the repository name (e.g. "crabcode" or "formfactors").\n\nTicket title: ${ticket.title}\nTicket description: ${(ticket.description || "").substring(0, 300)}`;
+  const classifyPrompt = `Given these repositories:\n${repoList}\n\nWhich repository does this ticket belong to? Reply with ONLY the repository name (e.g. "crabcode" or "formfactors"), nothing else.\n\nTicket title: ${ticket.title}\nTicket description: ${(ticket.description || "").substring(0, 300)}`;
 
   try {
-    const sessionId = await createOpenCodeSession(`classify-${ticket.identifier}`);
-    await sendPromptToSession(sessionId, classifyPrompt);
-
-    // Wait up to 30s for the classification response
-    let reply = "";
-    for (let i = 0; i < 15; i++) {
-      await new Promise((r) => setTimeout(r, 2000));
-      const session = await getSessionStatus(sessionId);
-      if (session?.status === "completed" || session?.status === "idle") {
-        reply = (session.lastResponse || "").toLowerCase().trim();
-        break;
-      }
-    }
+    const reply = await askCrabTalk(classifyPrompt);
+    const replyLower = reply.toLowerCase();
 
     for (const [mapKey, repoPath] of Object.entries(PROJECT_REPO_MAP)) {
-      if (reply.includes(mapKey)) {
-        log("info", `LLM classified ${ticket.identifier} → ${repoPath}`);
+      if (replyLower.includes(mapKey)) {
+        log("info", `CrabTalk classified ${ticket.identifier} → ${repoPath}`);
         return repoPath;
       }
     }
 
-    log("warn", `LLM classification unclear for ${ticket.identifier}, reply: '${reply}'. Using default.`);
+    log("warn", `CrabTalk classification unclear for ${ticket.identifier}, reply: '${reply}'. Using default.`);
   } catch (err) {
-    log("warn", `LLM classification failed for ${ticket.identifier}: ${err.message}. Using default.`);
+    log("warn", `CrabTalk classification failed for ${ticket.identifier}: ${err.message}. Using default.`);
   }
 
   // 3. Default
@@ -317,6 +387,7 @@ async function startTicket(ticket) {
       title: ticket.title,
       startedAt: Date.now(),
       lastChecked: Date.now(),
+      lastSeenCommentAt: new Date().toISOString(),
     });
 
     // 7. Comment with session link
@@ -324,6 +395,9 @@ async function startTicket(ticket) {
       ticket.id,
       `🔧 OpenCode session \`${sessionId}\` created. Working on implementation...`
     );
+
+    // 8. Notify via Telegram
+    await sendTelegram(`🦀 *Starting* [${ticket.identifier}](${ticket.url}): ${ticket.title}`);
   } catch (err) {
     log("error", `Failed to start ${ticketRef}`, { error: err.message });
     try {
@@ -337,48 +411,129 @@ async function startTicket(ticket) {
 
 function buildPrompt(ticket, repoPath) {
   const parts = [
-    `## Linear Ticket: ${ticket.identifier} — ${ticket.title}`,
+    `## Assigned Linear Ticket: ${ticket.identifier}`,
+    "",
+    `You have been assigned Linear ticket **${ticket.identifier}** ("${ticket.title}").`,
+    "",
+    "Use the Linear MCP tools to retrieve the full ticket details, description, and comments:",
+    `- Call \`linear_get_issue\` with id \`${ticket.identifier}\` to get the full description and metadata.`,
+    `- Call \`linear_get_issue_comments\` with id \`${ticket.identifier}\` to read all comments.`,
+    "",
+    "Based on the ticket information, implement the requested changes.",
     "",
   ];
 
   if (repoPath) {
-    parts.push(`**Repository:** \`${repoPath}\``);
-    parts.push("");
-  }
-
-  if (ticket.description) {
-    parts.push(ticket.description);
-  } else {
-    parts.push("No description provided.");
-  }
-
-  parts.push("");
-  parts.push(`Ticket URL: ${ticket.url}`);
-  parts.push("");
-
-  // Include recent comments for context
-  const comments = ticket.comments?.nodes || [];
-  if (comments.length > 0) {
-    parts.push("### Recent comments:");
-    for (const c of comments) {
-      if (c.user?.name === "crab") continue; // skip our own comments
-      parts.push(`- **${c.user?.name || "Unknown"}**: ${c.body.substring(0, 200)}`);
-    }
+    parts.push(`**Work in the repository at \`${repoPath}\`.**`);
     parts.push("");
   }
 
   parts.push(
-    "Please implement the changes described above. Follow existing code patterns,",
-    "write tests if applicable, and commit with a message referencing the ticket.",
+    "Follow existing code patterns, write tests if applicable,",
+    "and commit with a message referencing the ticket.",
     "",
-    "When done, provide a brief summary of what was changed and any follow-up items.",
-    "If you have questions or are blocked, clearly state what information you need."
+    "When done, add a comment to the Linear ticket summarizing what was changed",
+    `(use \`linear_add_comment\` with issueId \`${ticket.identifier}\`).`,
+    "",
+    "If you have questions or are blocked, comment on the ticket asking for clarification."
   );
 
   return parts.join("\n");
 }
 
+/**
+ * Build a follow-up prompt when a new comment arrives on an active ticket.
+ */
+function buildCommentPrompt(ticket, comment) {
+  return [
+    `## New comment on ${ticket.identifier}`,
+    "",
+    `**${comment.user?.name || "Someone"}** commented on your active ticket **${ticket.identifier}**:`,
+    "",
+    `> ${comment.body}`,
+    "",
+    "Use the Linear MCP tools to review the full context if needed:",
+    `- \`linear_get_issue\` with id \`${ticket.identifier}\``,
+    `- \`linear_get_issue_comments\` with id \`${ticket.identifier}\``,
+    "",
+    "Respond to this comment by continuing your work or replying on the ticket.",
+  ].join("\n");
+}
+
 // ── Session monitoring ──────────────────────────────────────────
+
+async function fetchTicketComments(ticketId) {
+  const data = await linearQuery(
+    `query($id: String!) {
+      issue(id: $id) {
+        comments(orderBy: createdAt) {
+          nodes { id body createdAt user { id name } }
+        }
+      }
+    }`,
+    { id: ticketId }
+  );
+  return data.issue.comments.nodes;
+}
+
+/**
+ * Check for new comments on active tickets and forward them as prompts.
+ * Reuses the existing session; only creates a new one if the original is gone.
+ */
+async function checkNewComments() {
+  for (const [ticketId, info] of activeTickets) {
+    try {
+      const comments = await fetchTicketComments(ticketId);
+      const newComments = comments.filter(
+        (c) =>
+          c.createdAt > info.lastSeenCommentAt &&
+          c.user?.id !== crabUserId // ignore our own comments
+      );
+
+      for (const comment of newComments) {
+        log("info", `New comment on ${info.identifier} from ${comment.user?.name}`, {
+          ticketId,
+          commentId: comment.id,
+        });
+
+        const prompt = buildCommentPrompt(
+          { identifier: info.identifier },
+          comment
+        );
+
+        // Verify session still exists; recreate only if gone
+        let sessionId = info.sessionId;
+        if (sessionId) {
+          const session = await getSessionStatus(sessionId);
+          if (!session) {
+            log("info", `Session ${sessionId} gone, creating new one for ${info.identifier}`);
+            sessionId = await createOpenCodeSession(`${info.identifier}: ${info.title}`);
+            info.sessionId = sessionId;
+          }
+        } else {
+          sessionId = await createOpenCodeSession(`${info.identifier}: ${info.title}`);
+          info.sessionId = sessionId;
+        }
+
+        try {
+          await sendPromptToSession(sessionId, prompt);
+          log("info", `Forwarded comment to session ${sessionId}`);
+        } catch (err) {
+          log("warn", `Failed to forward comment to session: ${err.message}`);
+        }
+      }
+
+      // Update watermark
+      if (comments.length > 0) {
+        info.lastSeenCommentAt = comments[comments.length - 1].createdAt;
+      }
+    } catch (err) {
+      log("error", `Error checking comments for ${info.identifier}`, {
+        error: err.message,
+      });
+    }
+  }
+}
 
 async function checkActiveTickets() {
   for (const [ticketId, info] of activeTickets) {
@@ -389,34 +544,37 @@ async function checkActiveTickets() {
       const elapsed = Date.now() - info.startedAt;
       const elapsedMin = Math.round(elapsed / 60000);
 
-      // Check if session is complete (has a final response)
-      if (session.status === "completed" || session.status === "idle") {
-        const summary = session.lastResponse?.substring(0, 500) || "Work completed.";
+      // Session is done when running === false
+      if (session.running === false) {
+        // Extract last assistant text from messages
+        const messages = session.messages || [];
+        let summary = "Work completed.";
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const m = messages[i];
+          if (m.info?.role === "assistant") {
+            const text = (m.parts || []).find((p) => p.type === "text")?.text;
+            if (text) {
+              summary = text.substring(0, 1000);
+              break;
+            }
+          }
+        }
 
         await addComment(
           ticketId,
           `✅ **crab** has finished working on this ticket (${elapsedMin}min).\n\n${summary}`
         );
         await moveTicketToState(ticketId, "Done");
+        await sendTelegram(`✅ *Done* ${info.identifier}: ${info.title} (${elapsedMin}min)`);
 
         activeTickets.delete(ticketId);
         finishedTickets.add(ticketId);
         log("info", `Completed ${info.identifier}`, { elapsed: elapsedMin });
-      } else if (session.status === "error") {
-        const errorMsg = session.error || "Unknown error";
-
-        await addComment(
-          ticketId,
-          `❌ **crab** encountered an error:\n\n\`\`\`\n${errorMsg}\n\`\`\`\n\nThe ticket may need manual attention.`
-        );
-
-        activeTickets.delete(ticketId);
-        finishedTickets.add(ticketId);
-        log("error", `Error on ${info.identifier}`, { error: errorMsg });
+        continue;
       }
 
       // Timeout after 30 minutes
-      if (elapsed > 30 * 60 * 1000 && !finishedTickets.has(ticketId)) {
+      if (elapsed > 30 * 60 * 1000) {
         await addComment(
           ticketId,
           `⏰ **crab** has been working for ${elapsedMin}min without completing. Session: \`${info.sessionId}\`.\n\nThis may need manual review.`
@@ -457,11 +615,23 @@ async function main() {
         // Skip already active or finished tickets
         if (activeTickets.has(ticket.id) || finishedTickets.has(ticket.id)) continue;
 
+        // Mark as active immediately to prevent duplicate starts across poll cycles
+        activeTickets.set(ticket.id, {
+          sessionId: null,
+          identifier: ticket.identifier,
+          title: ticket.title,
+          startedAt: Date.now(),
+          lastChecked: Date.now(),
+          lastSeenCommentAt: new Date().toISOString(),
+        });
+
         // Start working on the ticket
         startTicket(ticket).catch((err) => {
           log("error", `Unhandled error starting ${ticket.identifier}`, {
             error: err.message,
           });
+          // Remove from active so it can be retried next cycle
+          activeTickets.delete(ticket.id);
         });
       }
 
