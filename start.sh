@@ -293,8 +293,10 @@ fi
 
 # ── glab (GitLab CLI for code.wabo.run) ──────────────────────────
 if [ -n "${GLAB_TOKEN:-}" ]; then
-    mkdir -p "${HOME}/.config/glab-cli"
-    cat > "${HOME}/.config/glab-cli/config.yml" <<GLABEOF
+    # Write to XDG_CONFIG_HOME so glab finds it (it respects XDG over HOME)
+    GLAB_DIR="${XDG_CONFIG_HOME}/glab-cli"
+    mkdir -p "${GLAB_DIR}"
+    cat > "${GLAB_DIR}/config.yml" <<GLABEOF
 git_protocol: https
 host: code.wabo.run
 hosts:
