@@ -91,6 +91,8 @@ function normalizeBody(buffer) {
       if (payload.tool_choice && typeof payload.tool_choice === 'object' && payload.tool_choice.type === 'auto') {
         payload.tool_choice = 'auto';
       }
+      // Remove stream_options — not supported by Copilot API
+      delete payload.stream_options;
       return Buffer.from(JSON.stringify(payload));
     }
   } catch {}
