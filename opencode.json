@@ -2,6 +2,38 @@
   "$schema": "https://opencode.ai/config.json",
   "permission": "allow",
   "provider": {
+    "github-copilot": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "GitHub Copilot",
+      "options": {
+        "baseURL": "http://127.0.0.1:18791/v1"
+      },
+      "models": {
+        "claude-opus-4.6": {
+          "name": "Claude Opus 4.6",
+          "attachments": true,
+          "toolcall": true
+        },
+        "claude-sonnet-4": {
+          "name": "Claude Sonnet 4",
+          "attachments": true,
+          "toolcall": true
+        },
+        "claude-sonnet-4.6": {
+          "name": "Claude Sonnet 4.6",
+          "attachments": true,
+          "toolcall": true
+        },
+        "gpt-4o": {
+          "name": "GPT-4o",
+          "toolcall": true
+        },
+        "o3-mini": {
+          "name": "o3-mini",
+          "toolcall": true
+        }
+      }
+    },
     "copilot-proxy": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "GitHub Copilot (proxy)",
