@@ -1,9 +1,6 @@
-{
-	order route first
-}
-
 :80 {
-	respond /health "ok" 200
+	@health path /health
+	respond @health "ok" 200
 
 	handle_path /mcp-bridge/* {
 		reverse_proxy 127.0.0.1:8081
@@ -13,7 +10,9 @@
 		reverse_proxy 127.0.0.1:8081
 	}
 
-	@opencode path /api/event /api/event/* /api/session /api/session/* /api/config /api/app/*
+	@opencode {
+		path /api/event /api/event/* /api/session /api/session/* /api/config /api/app/*
+	}
 	handle @opencode {
 		reverse_proxy 127.0.0.1:4096 {
 			flush_interval -1
