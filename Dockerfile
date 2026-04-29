@@ -87,9 +87,14 @@ RUN curl -fsSL "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release
 # ── Helm ────────────────────────────────────────────────────────────
 RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-# ── zip / unzip ─────────────────────────────────────────────────────
-RUN apt-get update && apt-get install -y --no-install-recommends zip unzip \
+# ── zip / unzip / openvpn ────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends zip unzip openvpn \
     && rm -rf /var/lib/apt/lists/*
+
+# ── glab (GitLab CLI) ───────────────────────────────────────────────
+RUN curl -fsSL "https://gitlab.com/gitlab-org/cli/-/releases/permalink/latest/downloads/glab_Linux_x86_64.tar.gz" \
+    | tar xz -C /usr/local/bin bin/glab --strip-components=1 \
+    && chmod +x /usr/local/bin/glab
 
 # ── Go ──────────────────────────────────────────────────────────────
 RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \

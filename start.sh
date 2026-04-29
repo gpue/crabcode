@@ -205,7 +205,7 @@ trap cleanup EXIT INT TERM
 # ── Start Tailscale (runs as root, userspace networking) ─────────
 # Tailscale state is persisted on the volume, but socket must be local
 mkdir -p "${WORKSPACE_DIR}/.tailscale" /tmp/tailscale
-tailscaled --state="${WORKSPACE_DIR}/.tailscale/tailscaled.state" \
+tailscaled --state="${WORKSPACE_DIR}/.tailscale/${TS_HOSTNAME:-crabcode}.state" \
            --socket=/tmp/tailscale/tailscaled.sock \
            --tun=userspace-networking \
            --socks5-server=localhost:1055 &
@@ -266,6 +266,46 @@ sed -i "s/.*\bnova\b.*/100.113.46.67\tnova/" /etc/hosts
 grep -q "nova" /etc/hosts || echo "100.113.46.67	nova" >> /etc/hosts
 echo "[hosts] nova -> 100.113.46.67"
 
+# ── OpenVPN (corporate VPN for code.wabo.run access) ─────────────
+if [ -n "${OVPN_CONFIG:-}" ]; then
+    echo "[openvpn] Setting up VPN connection..."
+    mkdir -p /dev/net /etc/openvpn
+    [ -c /dev/net/tun ] || mknod /dev/net/tun c 10 200
+    echo "$OVPN_CONFIG" | base64 -d > /etc/openvpn/client.ovpn
+    printf '%s\n%s\n' "${OVPN_USERNAME:-}" "${OVPN_PASSWORD:-}" > /etc/openvpn/auth.txt
+    chmod 600 /etc/openvpn/auth.txt
+    # Ensure auth-user-pass points to our credentials file
+    sed -i 's|^auth-user-pass.*|auth-user-pass /etc/openvpn/auth.txt|' /etc/openvpn/client.ovpn
+    openvpn --config /etc/openvpn/client.ovpn --daemon --log /var/log/openvpn.log
+    for i in $(seq 1 30); do
+        if ip addr show tun0 &>/dev/null; then
+            echo "[openvpn] Connected: $(ip addr show tun0 | grep 'inet ' | awk '{print $2}')"
+            break
+        fi
+        sleep 1
+    done
+    if ! ip addr show tun0 &>/dev/null; then
+        echo "[openvpn] WARNING: VPN connection failed — check /var/log/openvpn.log"
+    fi
+else
+    echo "[openvpn] No OVPN_CONFIG set — skipping VPN"
+fi
+
+# ── glab (GitLab CLI for code.wabo.run) ──────────────────────────
+if [ -n "${GLAB_TOKEN:-}" ]; then
+    mkdir -p "${HOME}/.config/glab-cli"
+    cat > "${HOME}/.config/glab-cli/config.yml" <<GLABEOF
+git_protocol: https
+host: code.wabo.run
+hosts:
+    code.wabo.run:
+        api_protocol: https
+        api_host: code.wabo.run
+        token: ${GLAB_TOKEN}
+GLABEOF
+    echo "[glab] Configured for code.wabo.run"
+fi
+
 # ── Bootstrap workspace repos ───────────────────────────────────
 # Clone default repos into /workspace on first boot so OpenCode has projects to work with.
 # Uses GH_TOKEN for auth. Add more repos to the array as needed.
@@ -287,6 +327,11 @@ if [ -n "${GH_TOKEN:-}" ]; then
     # Instead, all LLM traffic goes through our copilot-proxy which sanitizes requests.
     # The copilot-proxy resolves its token via `gh auth token` (set above).
     unset GITHUB_TOKEN
+fi
+
+# Add GitLab credentials for code.wabo.run
+if [ -n "${GLAB_TOKEN:-}" ]; then
+    echo "https://oauth2:${GLAB_TOKEN}@code.wabo.run" >> "${HOME}/.git-credentials"
 fi
 
 for repo in "${REPOS[@]}"; do

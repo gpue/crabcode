@@ -1,0 +1,124 @@
+name: Deploy to Azure Container Instances
+
+on:
+  workflow_run:
+    workflows: ["Build and Push Docker Image"]
+    types: [completed]
+    branches: [main]
+
+env:
+  RESOURCE_GROUP: wabo
+  CONTAINER_NAME: crabcode-aci
+  IMAGE_NAME: waboreg.azurecr.io/crabcode
+  LOCATION: westeurope
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get image tag
+        id: tag
+        run: echo "tag=$(echo ${{ github.event.workflow_run.head_sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: Get storage key
+        id: storage
+        run: |
+          KEY=$(az storage account keys list \
+            --account-name crabcodestorage \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "[0].value" -o tsv)
+          echo "key=$KEY" >> $GITHUB_OUTPUT
+
+      - name: Generate ACI deployment YAML
+        run: |
+          cat > /tmp/aci-deploy.yaml <<'YAMLEOF'
+          apiVersion: "2023-05-01"
+          location: westeurope
+          name: crabcode-aci
+          properties:
+            containers:
+              - name: crabcode
+                properties:
+                  image: IMAGE_PLACEHOLDER
+                  resources:
+                    requests:
+                      cpu: 4
+                      memoryInGb: 8
+                  securityContext:
+                    capabilities:
+                      add:
+                        - NET_ADMIN
+                    privileged: false
+                  environmentVariables:
+                    - name: TS_HOSTNAME
+                      value: crabcode-aci
+                    - name: GH_TOKEN
+                      secureValue: GH_TOKEN_PLACEHOLDER
+                    - name: LINEAR_API_KEY
+                      secureValue: LINEAR_API_KEY_PLACEHOLDER
+                    - name: LINEAR_ASSIGNEE_ID
+                      secureValue: LINEAR_ASSIGNEE_ID_PLACEHOLDER
+                    - name: LINEAR_TEAM_ID
+                      secureValue: LINEAR_TEAM_ID_PLACEHOLDER
+                    - name: TELEGRAM_BOT_TOKEN
+                      secureValue: TELEGRAM_BOT_TOKEN_PLACEHOLDER
+                    - name: TELEGRAM_NOTIFY_TARGET
+                      secureValue: TELEGRAM_NOTIFY_TARGET_PLACEHOLDER
+                    - name: TS_AUTHKEY
+                      secureValue: TS_AUTHKEY_PLACEHOLDER
+                    - name: OVPN_CONFIG
+                      secureValue: OVPN_CONFIG_PLACEHOLDER
+                    - name: OVPN_USERNAME
+                      secureValue: OVPN_USERNAME_PLACEHOLDER
+                    - name: OVPN_PASSWORD
+                      secureValue: OVPN_PASSWORD_PLACEHOLDER
+                    - name: GLAB_TOKEN
+                      secureValue: GLAB_TOKEN_PLACEHOLDER
+                  volumeMounts:
+                    - name: workspace
+                      mountPath: /workspace
+            osType: Linux
+            restartPolicy: Always
+            volumes:
+              - name: workspace
+                azureFile:
+                  shareName: crabcode-workspace
+                  storageAccountName: crabcodestorage
+                  storageAccountKey: STORAGE_KEY_PLACEHOLDER
+            imageRegistryCredentials:
+              - server: waboreg.azurecr.io
+                username: waboreg
+                password: ACR_PASSWORD_PLACEHOLDER
+          YAMLEOF
+
+          # Replace placeholders
+          sed -i "s|IMAGE_PLACEHOLDER|${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}|" /tmp/aci-deploy.yaml
+          sed -i "s|STORAGE_KEY_PLACEHOLDER|${{ steps.storage.outputs.key }}|" /tmp/aci-deploy.yaml
+          sed -i "s|ACR_PASSWORD_PLACEHOLDER|${{ secrets.ACR_PASSWORD }}|" /tmp/aci-deploy.yaml
+          sed -i "s|GH_TOKEN_PLACEHOLDER|${{ secrets.GH_TOKEN }}|" /tmp/aci-deploy.yaml
+          sed -i "s|LINEAR_API_KEY_PLACEHOLDER|${{ secrets.LINEAR_API_KEY }}|" /tmp/aci-deploy.yaml
+          sed -i "s|LINEAR_ASSIGNEE_ID_PLACEHOLDER|${{ secrets.LINEAR_ASSIGNEE_ID }}|" /tmp/aci-deploy.yaml
+          sed -i "s|LINEAR_TEAM_ID_PLACEHOLDER|${{ secrets.LINEAR_TEAM_ID }}|" /tmp/aci-deploy.yaml
+          sed -i "s|TELEGRAM_BOT_TOKEN_PLACEHOLDER|${{ secrets.TELEGRAM_BOT_TOKEN }}|" /tmp/aci-deploy.yaml
+          sed -i "s|TELEGRAM_NOTIFY_TARGET_PLACEHOLDER|${{ secrets.TELEGRAM_NOTIFY_TARGET }}|" /tmp/aci-deploy.yaml
+          sed -i "s|TS_AUTHKEY_PLACEHOLDER|${{ secrets.TS_AUTHKEY_ACI }}|" /tmp/aci-deploy.yaml
+          sed -i "s|OVPN_CONFIG_PLACEHOLDER|${{ secrets.OVPN_CONFIG }}|" /tmp/aci-deploy.yaml
+          sed -i "s|OVPN_USERNAME_PLACEHOLDER|${{ secrets.OVPN_USERNAME }}|" /tmp/aci-deploy.yaml
+          sed -i "s|OVPN_PASSWORD_PLACEHOLDER|${{ secrets.OVPN_PASSWORD }}|" /tmp/aci-deploy.yaml
+          sed -i "s|GLAB_TOKEN_PLACEHOLDER|${{ secrets.GLAB_TOKEN }}|" /tmp/aci-deploy.yaml
+
+      - name: Delete existing ACI (if any)
+        run: az container delete --name ${{ env.CONTAINER_NAME }} --resource-group ${{ env.RESOURCE_GROUP }} --yes 2>/dev/null || true
+
+      - name: Deploy ACI
+        run: az container create --resource-group ${{ env.RESOURCE_GROUP }} --file /tmp/aci-deploy.yaml
