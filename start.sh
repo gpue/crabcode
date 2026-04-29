@@ -370,12 +370,11 @@ echo "[openchamber] Starting OpenChamber UI..."
     sleep 1
     # Unset ALL_PROXY entirely — Node.js proxy libraries may not respect NO_PROXY
     # correctly for localhost, causing OpenChamber to fail connecting to OpenCode.
-    # Use OPENCODE_URL with 127.0.0.1 (not localhost) to avoid IPv6 resolution issues.
+    # OPENCODE_HOST must be a full URL (not just hostname) per OpenChamber's validation.
     ALL_PROXY="" all_proxy="" HTTP_PROXY="" HTTPS_PROXY="" http_proxy="" https_proxy="" \
     NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
         OPENCODE_PORT="${OPENCODE_PORT}" \
-        OPENCODE_URL="http://127.0.0.1:${OPENCODE_PORT}" \
-        OPENCODE_HOST="127.0.0.1" \
+        OPENCODE_HOST="http://127.0.0.1:${OPENCODE_PORT}" \
         OPENCODE_SKIP_START=true \
         openchamber serve --port "${OPENCHAMBER_PORT}" --host 0.0.0.0 --foreground || true
     echo "[openchamber] Process exited, restarting in 3s..."
