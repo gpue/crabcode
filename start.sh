@@ -276,13 +276,17 @@ REPOS=(
 )
 
 if [ -n "${GH_TOKEN:-}" ]; then
-    # Export as GITHUB_TOKEN so OpenCode's built-in github-copilot provider finds it
-    export GITHUB_TOKEN="${GH_TOKEN}"
     git config --global credential.helper store
     echo "https://x-access-token:${GH_TOKEN}@github.com" > "${HOME}/.git-credentials"
     git config --global user.name "Georg Püschel"
     git config --global user.email "georg.pueschel@wandelbots.com"
     echo "${GH_TOKEN}" | gh auth login --with-token
+    # NOTE: We intentionally do NOT export GITHUB_TOKEN for OpenCode.
+    # This hides the built-in github-copilot provider which sends unsanitized
+    # tool schemas (empty descriptions, title fields) that the Copilot API rejects.
+    # Instead, all LLM traffic goes through our copilot-proxy which sanitizes requests.
+    # The copilot-proxy resolves its token via `gh auth token` (set above).
+    unset GITHUB_TOKEN
 fi
 
 for repo in "${REPOS[@]}"; do
