@@ -1,7 +1,17 @@
 #!/usr/bin/env bash
 # start.sh — entrypoint for crabcode container
-# Starts Tailscale, OpenCode web UI, CrabTalk, Telegram bridge, and Caddy.
 # All services are only reachable via Tailscale — no public ingress.
+#
+# Services started by this script:
+#   tailscaled        — Tailscale daemon; provides the private overlay network and TLS cert
+#   copilot-proxy     — Local HTTP proxy that sanitizes GitHub Copilot API requests/responses
+#   crabtalk          — AI chat daemon; handles multi-agent sessions and memory
+#   telegram-bridge   — Bridges Telegram messages into CrabTalk sessions
+#   linear-agent      — Watches Linear issues and drives OpenCode to implement them
+#   mcp-bridge        — Model Context Protocol bridge; exposes tools (files, git, shell) over HTTP
+#   opencode          — AI coding web UI; long-running, auto-restarted on crash
+#   openchamber       — Browser UI shell that connects to the running OpenCode backend
+#   caddy             — Reverse proxy; terminates TLS (or HTTP) and routes to OpenCode/OpenChamber
 set -uo pipefail
 # NOTE: -e intentionally omitted — we handle errors explicitly below.
 # Azure File Share mounts can hang; we must not let that block forever.
