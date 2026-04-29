@@ -68,7 +68,7 @@ async function readBody(req) {
   return Buffer.concat(chunks);
 }
 
-const MAX_TOOLS = 20; // GitHub Copilot API rejects requests with too many tools
+const MAX_TOOLS = 128; // Copilot supports many tools, issue is unsupported fields
 
 function normalizeBody(buffer) {
   if (buffer.length === 0) return undefined;
@@ -76,15 +76,36 @@ function normalizeBody(buffer) {
     const payload = JSON.parse(buffer.toString("utf8"));
     if (payload && typeof payload === "object") {
       if (!payload.model) payload.model = DEFAULT_MODEL;
-      // Truncate tools to avoid Copilot API 400 errors
-      if (Array.isArray(payload.tools) && payload.tools.length > MAX_TOOLS) {
-        console.log(`[copilot-proxy] Truncating tools from ${payload.tools.length} to ${MAX_TOOLS}`);
-        payload.tools = payload.tools.slice(0, MAX_TOOLS);
+      // Strip fields that Copilot API doesn't support
+      if (Array.isArray(payload.tools)) {
+        for (const tool of payload.tools) {
+          if (tool.function) {
+            // Remove 'strict' field — Copilot API rejects it
+            delete tool.function.strict;
+            // Remove additionalProperties from parameters schema recursively
+            stripAdditionalProperties(tool.function.parameters);
+          }
+        }
+      }
+      // Remove tool_choice if it's an unsupported format
+      if (payload.tool_choice && typeof payload.tool_choice === 'object' && payload.tool_choice.type === 'auto') {
+        payload.tool_choice = 'auto';
       }
       return Buffer.from(JSON.stringify(payload));
     }
   } catch {}
   return buffer;
+}
+
+function stripAdditionalProperties(obj) {
+  if (!obj || typeof obj !== 'object') return;
+  delete obj.additionalProperties;
+  if (obj.properties) {
+    for (const v of Object.values(obj.properties)) {
+      stripAdditionalProperties(v);
+    }
+  }
+  if (obj.items) stripAdditionalProperties(obj.items);
 }
 
 // ── Retry with backoff ──────────────────────────────────────────
@@ -145,6 +166,13 @@ const server = http.createServer(async (req, res) => {
       try {
         const parsed = JSON.parse(body.toString("utf8"));
         console.log(`[copilot-proxy] → ${upstreamUrl} model=${parsed.model} messages=${parsed.messages?.length} tools=${parsed.tools?.length || 0} stream=${parsed.stream} token=${token.slice(0,8)}...`);
+        // Log first tool structure and any unusual fields
+        if (parsed.tools?.length > 0) {
+          const fields = Object.keys(parsed).filter(k => !['model','messages','tools','stream','temperature','max_tokens','top_p','stop'].includes(k));
+          if (fields.length) console.log(`[copilot-proxy] Extra fields: ${fields.join(', ')}`);
+          const t = parsed.tools[0];
+          console.log(`[copilot-proxy] Tool[0] keys: ${JSON.stringify(Object.keys(t))}, fn keys: ${JSON.stringify(Object.keys(t.function || {}))}`);
+        }
       } catch {}
     }
 
