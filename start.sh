@@ -271,6 +271,8 @@ echo "[hosts] nova -> 100.113.46.67"
 # Uses GH_TOKEN for auth. Add more repos to the array as needed.
 REPOS=(
     "gpue/crabcode"
+    "gpue/gp"
+    "gpue/formfactors"
 )
 
 if [ -n "${GH_TOKEN:-}" ]; then
