@@ -35,6 +35,15 @@ const LINEAR_TEAM_ID = process.env.LINEAR_TEAM_ID || "";
 const POLL_INTERVAL = parseInt(process.env.LINEAR_POLL_INTERVAL_MS || "30000", 10);
 const OPENCODE_URL = process.env.OPENCODE_MCP_URL || "http://127.0.0.1:8081";
 
+// ── Project → repo routing ──────────────────────────────────────
+// Maps Linear project name (lowercased) to workspace repo path.
+// Add entries here as new projects/repos are created.
+const PROJECT_REPO_MAP = {
+  "crabcode": "/workspace/crabcode",
+  "formfactors": "/workspace/formfactors",
+};
+const DEFAULT_REPO = "/workspace/crabcode";
+
 // Tickets currently being processed (id → { sessionId, startedAt })
 const activeTickets = new Map();
 // Tickets we've already completed or failed
@@ -116,6 +125,7 @@ async function fetchCrabTickets(userId) {
           labels { nodes { name } }
           priority
           url
+          project { id name }
           assignee { id name }
           comments(first: 5, orderBy: createdAt) {
             nodes { body createdAt user { name } }
@@ -140,11 +150,14 @@ async function getWorkflowStates(issueId) {
   return data.issue.team.states.nodes;
 }
 
-async function moveTicketToState(issueId, stateType) {
+async function moveTicketToState(issueId, stateName) {
   const states = await getWorkflowStates(issueId);
-  const target = states.find((s) => s.type === stateType);
+  // Match by exact name first (e.g. "In Progress"), then fall back to type
+  const target =
+    states.find((s) => s.name.toLowerCase() === stateName.toLowerCase()) ||
+    states.find((s) => s.type === stateName);
   if (!target) {
-    log("warn", `No state of type '${stateType}' found`, { issueId });
+    log("warn", `No state matching '${stateName}' found`, { issueId });
     return;
   }
 
@@ -172,11 +185,11 @@ async function addComment(issueId, body) {
 
 // ── OpenCode session management ─────────────────────────────────
 
-async function createOpenCodeSession() {
+async function createOpenCodeSession(title) {
   const res = await fetch(`${OPENCODE_URL}/session`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ lane: "now" }),
+    body: JSON.stringify({ lane: "now", title }),
   });
   if (!res.ok) throw new Error(`Failed to create session: ${res.status}`);
   const data = await res.json();
@@ -189,13 +202,16 @@ async function sendPromptToSession(sessionId, prompt) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       prompt,
-      providerID: "copilot",
+      providerID: "github-copilot",
       modelID: "claude-sonnet-4",
       variant: "medium",
       mode: "code",
     }),
   });
-  if (!res.ok) throw new Error(`Failed to send prompt: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Failed to send prompt: ${res.status} ${body}`);
+  }
 }
 
 async function getSessionStatus(sessionId) {
@@ -210,13 +226,73 @@ async function getSessionStatus(sessionId) {
 
 // ── Ticket processing ───────────────────────────────────────────
 
+/**
+ * Resolve which repo path to work in for a given ticket.
+ * 1. If the ticket has a Linear project whose name matches PROJECT_REPO_MAP → use it.
+ * 2. Otherwise, ask the LLM to classify the ticket and parse the response.
+ * 3. Fall back to DEFAULT_REPO if LLM response is unrecognisable.
+ */
+async function resolveRepo(ticket) {
+  // 1. Static project map
+  if (ticket.project?.name) {
+    const key = ticket.project.name.toLowerCase();
+    for (const [mapKey, repoPath] of Object.entries(PROJECT_REPO_MAP)) {
+      if (key.includes(mapKey)) {
+        log("info", `Routing ${ticket.identifier} to ${repoPath} via project '${ticket.project.name}'`);
+        return repoPath;
+      }
+    }
+  }
+
+  // 2. LLM fallback
+  const repoList = Object.entries(PROJECT_REPO_MAP)
+    .map(([name, path]) => `- ${name}: ${path}`)
+    .join("\n");
+
+  const classifyPrompt = `Given these repositories:\n${repoList}\n\nWhich repository does this ticket belong to? Reply with only the repository name (e.g. "crabcode" or "formfactors").\n\nTicket title: ${ticket.title}\nTicket description: ${(ticket.description || "").substring(0, 300)}`;
+
+  try {
+    const sessionId = await createOpenCodeSession(`classify-${ticket.identifier}`);
+    await sendPromptToSession(sessionId, classifyPrompt);
+
+    // Wait up to 30s for the classification response
+    let reply = "";
+    for (let i = 0; i < 15; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const session = await getSessionStatus(sessionId);
+      if (session?.status === "completed" || session?.status === "idle") {
+        reply = (session.lastResponse || "").toLowerCase().trim();
+        break;
+      }
+    }
+
+    for (const [mapKey, repoPath] of Object.entries(PROJECT_REPO_MAP)) {
+      if (reply.includes(mapKey)) {
+        log("info", `LLM classified ${ticket.identifier} → ${repoPath}`);
+        return repoPath;
+      }
+    }
+
+    log("warn", `LLM classification unclear for ${ticket.identifier}, reply: '${reply}'. Using default.`);
+  } catch (err) {
+    log("warn", `LLM classification failed for ${ticket.identifier}: ${err.message}. Using default.`);
+  }
+
+  // 3. Default
+  return DEFAULT_REPO;
+}
+
 async function startTicket(ticket) {
   const ticketRef = `${ticket.identifier}: ${ticket.title}`;
   log("info", `Starting work on ${ticketRef}`, { ticketId: ticket.id });
 
   try {
+    // 0. Resolve target repo
+    const repoPath = await resolveRepo(ticket);
+    log("info", `Target repo for ${ticket.identifier}: ${repoPath}`);
+
     // 1. Move to "In Progress"
-    await moveTicketToState(ticket.id, "started");
+    await moveTicketToState(ticket.id, "In Progress");
 
     // 2. Comment that we're starting
     await addComment(
@@ -225,11 +301,11 @@ async function startTicket(ticket) {
     );
 
     // 3. Create OpenCode session
-    const sessionId = await createOpenCodeSession();
+    const sessionId = await createOpenCodeSession(`${ticket.identifier}: ${ticket.title}`);
     log("info", `Created OpenCode session ${sessionId} for ${ticket.identifier}`);
 
     // 4. Build prompt from ticket
-    const prompt = buildPrompt(ticket);
+    const prompt = buildPrompt(ticket, repoPath);
 
     // 5. Send to OpenCode
     await sendPromptToSession(sessionId, prompt);
@@ -259,11 +335,16 @@ async function startTicket(ticket) {
   }
 }
 
-function buildPrompt(ticket) {
+function buildPrompt(ticket, repoPath) {
   const parts = [
     `## Linear Ticket: ${ticket.identifier} — ${ticket.title}`,
     "",
   ];
+
+  if (repoPath) {
+    parts.push(`**Repository:** \`${repoPath}\``);
+    parts.push("");
+  }
 
   if (ticket.description) {
     parts.push(ticket.description);
@@ -316,7 +397,7 @@ async function checkActiveTickets() {
           ticketId,
           `✅ **crab** has finished working on this ticket (${elapsedMin}min).\n\n${summary}`
         );
-        await moveTicketToState(ticketId, "completed");
+        await moveTicketToState(ticketId, "Done");
 
         activeTickets.delete(ticketId);
         finishedTickets.add(ticketId);

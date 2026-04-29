@@ -356,7 +356,7 @@ node /app/scripts/telegram-bridge.mjs &
 TELEGRAM_PID=$!
 
 # ── Linear ticket agent ──────────────────────────────────────────
-node /app/scripts/linear-agent.mjs &
+ALL_PROXY="" NO_PROXY=127.0.0.1,localhost node /app/scripts/linear-agent.mjs >> /tmp/linear-agent.log 2>&1 &
 LINEAR_AGENT_PID=$!
 
 # ── MCP bridge server ────────────────────────────────────────────

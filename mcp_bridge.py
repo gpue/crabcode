@@ -88,14 +88,6 @@ async def _run_prompt_in_background(
                 f"/session/{session_id}/message",
                 json={
                     "parts": [{"type": "text", "text": payload.prompt}],
-                    "model": {
-                        "providerID": payload.providerID,
-                        "modelID": payload.modelID,
-                    },
-                    "variant": payload.variant,
-                    "mode": payload.mode,
-                    "agent": payload.mode,
-                    "tools": {},
                 },
                 timeout=300.0,
             )
@@ -426,10 +418,20 @@ async def _normalize_mcp_accept(request, call_next):
     return await call_next(request)
 
 
+class SessionCreateRequest(BaseModel):
+    lane: str = "now"
+    title: str | None = None
+
+
 @app.post("/session")
-async def create_session_internal() -> dict[str, Any]:
+async def create_session_internal(
+    payload: SessionCreateRequest | None = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {}
+    if payload and payload.title:
+        body["title"] = payload.title
     async with _client() as client:
-        response = await client.post("/session")
+        response = await client.post("/session", json=body if body else None)
         response.raise_for_status()
         created = response.json()
     session_id = created.get("id")
