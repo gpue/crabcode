@@ -55,10 +55,7 @@ jobs:
                       cpu: 4
                       memoryInGb: 8
                   securityContext:
-                    capabilities:
-                      add:
-                        - NET_ADMIN
-                    privileged: false
+                    privileged: true
                   environmentVariables:
                     - name: TS_HOSTNAME
                       value: crabcode-aci
