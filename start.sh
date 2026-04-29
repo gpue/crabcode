@@ -276,6 +276,8 @@ REPOS=(
 )
 
 if [ -n "${GH_TOKEN:-}" ]; then
+    # Export as GITHUB_TOKEN so OpenCode's built-in github-copilot provider finds it
+    export GITHUB_TOKEN="${GH_TOKEN}"
     git config --global credential.helper store
     echo "https://x-access-token:${GH_TOKEN}@github.com" > "${HOME}/.git-credentials"
     git config --global user.name "Georg Püschel"
