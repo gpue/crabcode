@@ -165,14 +165,18 @@ const server = http.createServer(async (req, res) => {
     if (body) {
       try {
         const parsed = JSON.parse(body.toString("utf8"));
-        console.log(`[copilot-proxy] → ${upstreamUrl} model=${parsed.model} messages=${parsed.messages?.length} tools=${parsed.tools?.length || 0} stream=${parsed.stream} token=${token.slice(0,8)}...`);
-        // Log first tool structure and any unusual fields
+        console.log(`[copilot-proxy] → ${upstreamUrl} model=${parsed.model} messages=${parsed.messages?.length} tools=${parsed.tools?.length || 0} stream=${parsed.stream} bodySize=${body.length} token=${token.slice(0,8)}...`);
+        if (parsed.messages?.length > 0) {
+          for (const m of parsed.messages) {
+            const content = typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content).length;
+            console.log(`[copilot-proxy] msg: role=${m.role} contentType=${typeof m.content} len=${content}`);
+          }
+        }
         if (parsed.tools?.length > 0) {
           const fields = Object.keys(parsed).filter(k => !['model','messages','tools','stream','temperature','max_tokens','top_p','stop'].includes(k));
           if (fields.length) console.log(`[copilot-proxy] Extra fields: ${fields.join(', ')}`);
-          const t = parsed.tools[0];
-          console.log(`[copilot-proxy] Tool[0] keys: ${JSON.stringify(Object.keys(t))}, fn keys: ${JSON.stringify(Object.keys(t.function || {}))}`);
-          if (parsed.tool_choice) console.log(`[copilot-proxy] tool_choice: ${JSON.stringify(parsed.tool_choice)}`);
+          // Log total tools JSON size
+          console.log(`[copilot-proxy] Tools total size: ${JSON.stringify(parsed.tools).length} bytes`);
         }
       } catch {}
     }
