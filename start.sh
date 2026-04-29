@@ -410,12 +410,11 @@ done
 (while true; do
     sleep 60
     sync_session_data
-    # Copy opencode.json to any new git repos that appeared since boot
+    # Copy opencode.json to all git repos (overwrite to ensure copilot-proxy config)
     if [ -f /app/opencode.json ]; then
         for d in "${WORKSPACE_DIR}"/*/; do
-            if [ -d "${d}.git" ] && [ ! -f "${d}opencode.json" ]; then
+            if [ -d "${d}.git" ]; then
                 cp /app/opencode.json "${d}opencode.json" 2>/dev/null || true
-                echo "[opencode] Copied config to ${d}"
             fi
         done
     fi
