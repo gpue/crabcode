@@ -154,6 +154,10 @@ ln -sfn "${PERSISTENT_HOME}/.local" /home/crabcode/.local
 
 export HOME="${PERSISTENT_HOME}"
 
+# ── Git identity (always set) ──────────────────────────────────
+git config --global user.name "gpue"
+git config --global user.email "georg.pueschel@gmail.com"
+
 # ── Persist CrabTalk data ────────────────────────────────────────
 CRABTALK_DATA="${WORKSPACE_DIR}/.crabtalk-data"
 mkdir -p "${CRABTALK_DATA}/sessions" "${CRABTALK_DATA}/memory/entries" "${CRABTALK_DATA}/config/agents"
@@ -332,8 +336,6 @@ REPOS=(
 if [ -n "${GH_TOKEN:-}" ]; then
     git config --global credential.helper store
     echo "https://x-access-token:${GH_TOKEN}@github.com" > "${HOME}/.git-credentials"
-    git config --global user.name "Georg Püschel"
-    git config --global user.email "georg.pueschel@wandelbots.com"
     echo "${GH_TOKEN}" | gh auth login --with-token
     # NOTE: We intentionally do NOT export GITHUB_TOKEN for OpenCode.
     # This hides the built-in github-copilot provider which sends unsanitized
