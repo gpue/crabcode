@@ -485,6 +485,10 @@ async def start_prompt_internal(
 
 @app.get("/session/{session_id}")
 async def session_detail_internal(session_id: str) -> dict[str, Any]:
+    if not session_id or session_id in ("null", "undefined"):
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse({"error": "Invalid session ID"}, status_code=400)
     return await _fetch_session_detail(session_id)
 
 

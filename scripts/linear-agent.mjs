@@ -404,6 +404,41 @@ function flattenEntries(tree) {
 }
 
 /**
+ * If a matched entry is a parent directory (not a git repo and has no package.json),
+ * try to narrow down to one of its children by matching keywords from the ticket
+ * title and description. Returns the refined child or the original entry.
+ */
+function _refineToChild(entry, tree, ticket) {
+  // If this entry is itself a proper repo, no refinement needed
+  if (entry.isGitRepo || entry.pkgName) return entry;
+
+  // Find this entry in the tree to get its children
+  const treeEntry = tree.find(e => e.path === entry.path);
+  if (!treeEntry || !treeEntry.children || treeEntry.children.length === 0) return entry;
+
+  // If there's only one child that's a proper repo, use it
+  const repoChildren = treeEntry.children.filter(c => c.isGitRepo || c.pkgName);
+  if (repoChildren.length === 1) return repoChildren[0];
+
+  // Try keyword matching from ticket title + description
+  const text = `${ticket.title || ""} ${ticket.description || ""}`.toLowerCase();
+  const childMatch = (treeEntry.children).find(c => {
+    const name = c.name.toLowerCase();
+    return text.includes(name) || (c.pkgName && text.includes(c.pkgName.toLowerCase()));
+  });
+  if (childMatch) return childMatch;
+
+  // If there are repo children but no keyword match, prefer any child that is a repo
+  // over the bare parent directory
+  if (repoChildren.length > 0) {
+    // Fall through to CrabTalk for disambiguation — return original for now
+    return entry;
+  }
+
+  return entry;
+}
+
+/**
  * Resolve which repo path to work in for a given ticket.
  * 1. Deterministic: match ticket's Linear project name against scanned repo names/pkgNames.
  * 2. LLM: ask CrabTalk with enriched workspace tree + ticket metadata.
@@ -423,8 +458,11 @@ async function resolveRepo(ticket) {
         (e.pkgName && e.pkgName.toLowerCase() === projectLower)
     );
     if (match) {
-      log("info", `Routing ${ticket.identifier} to ${match.path} via project name '${ticket.project.name}'`);
-      return match.path;
+      // If the match is a parent directory (not itself a repo), try to find a
+      // more specific child repo using keywords from the ticket title/description.
+      const resolved = _refineToChild(match, tree, ticket);
+      log("info", `Routing ${ticket.identifier} to ${resolved.path} via project name '${ticket.project.name}'`);
+      return resolved.path;
     }
     // Substring/fuzzy match (e.g. project "Diary App" matches directory "diary")
     const fuzzy = allEntries.find(
@@ -433,8 +471,9 @@ async function resolveRepo(ticket) {
         (e.pkgName && projectLower.includes(e.pkgName.toLowerCase()))
     );
     if (fuzzy) {
-      log("info", `Routing ${ticket.identifier} to ${fuzzy.path} via fuzzy project match '${ticket.project.name}'`);
-      return fuzzy.path;
+      const resolved = _refineToChild(fuzzy, tree, ticket);
+      log("info", `Routing ${ticket.identifier} to ${resolved.path} via fuzzy project match '${ticket.project.name}'`);
+      return resolved.path;
     }
   }
 
