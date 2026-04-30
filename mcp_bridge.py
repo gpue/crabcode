@@ -78,41 +78,13 @@ async def _fetch_sessions() -> list[dict[str, Any]]:
         return data if isinstance(data, list) else []
 
 
-async def _send_prompt_async(session_id: str, payload: PromptStartRequest) -> None:
-    """Send a prompt to an OpenCode session.
-    Tries /api/session/{id}/prompt_async first (works under opencode web),
-    falls back to /session/{id}/message (synchronous, always available)."""
+async def _send_prompt(session_id: str, payload: PromptStartRequest) -> None:
+    """Send a prompt to an OpenCode session via the synchronous /message endpoint."""
     body: dict[str, Any] = {
         "parts": [{"type": "text", "text": payload.prompt}],
     }
     if payload.modelID and payload.providerID:
         body["model"] = f"{payload.providerID}/{payload.modelID}"
-    try:
-        async with httpx.AsyncClient(
-            base_url=f"{OPENCODE_BASE}/api", auth=_auth(), timeout=30.0
-        ) as api_client:
-            response = await api_client.post(
-                f"/session/{session_id}/prompt_async",
-                json=body,
-            )
-            if response.status_code < 400:
-                ACTIVE_RUNS.add(session_id)
-                print(
-                    f"[mcp_bridge] prompt_async sent for session {session_id}",
-                    flush=True,
-                )
-                return
-            print(
-                f"[mcp_bridge] prompt_async returned {response.status_code}, falling back to /message",
-                flush=True,
-            )
-    except Exception as exc:
-        print(
-            f"[mcp_bridge] prompt_async error, falling back to /message: {exc}",
-            flush=True,
-        )
-
-    # Fallback: synchronous /message endpoint (blocks until LLM finishes)
     try:
         async with _client() as client:
             response = await client.post(
@@ -123,26 +95,25 @@ async def _send_prompt_async(session_id: str, payload: PromptStartRequest) -> No
             if response.status_code >= 400:
                 err_body = response.text[:500]
                 print(
-                    f"[mcp_bridge] /message failed {response.status_code}: {err_body}",
+                    f"[mcp_bridge] /message returned {response.status_code} for {session_id}: {err_body}",
                     flush=True,
                 )
                 response.raise_for_status()
-        ACTIVE_RUNS.add(session_id)
-        print(
-            f"[mcp_bridge] prompt sent via /message for session {session_id}",
-            flush=True,
-        )
+        print(f"[mcp_bridge] prompt completed for session {session_id}", flush=True)
     except Exception as exc:
         print(
             f"[mcp_bridge] ERROR: prompt failed for session {session_id}: {exc}",
             flush=True,
         )
         raise
+    finally:
+        ACTIVE_RUNS.discard(session_id)
 
 
 def _run_prompt_job(session_id: str, payload: PromptStartRequest) -> None:
+    ACTIVE_RUNS.add(session_id)
     try:
-        asyncio.run(_send_prompt_async(session_id, payload))
+        asyncio.run(_send_prompt(session_id, payload))
     except Exception as exc:
         print(
             f"[mcp_bridge] ERROR: background prompt job failed for {session_id}: {exc}",
@@ -327,23 +298,12 @@ async def get_session(session_id: str) -> dict[str, Any]:
 @mcp.tool(name="send_prompt")
 async def send_prompt(session_id: str, prompt: str) -> dict[str, Any]:
     body = {"parts": [{"type": "text", "text": prompt}]}
-    # Try /api/prompt_async first, fall back to /message
-    try:
-        async with httpx.AsyncClient(
-            base_url=f"{OPENCODE_BASE}/api", auth=_auth(), timeout=30.0
-        ) as api_client:
-            resp = await api_client.post(
-                f"/session/{session_id}/prompt_async", json=body
-            )
-            if resp.status_code < 400:
-                return {"ok": True, "sessionId": session_id}
-    except Exception:
-        pass
     async with _client() as client:
         resp = await client.post(
             f"/session/{session_id}/message", json=body, timeout=300.0
         )
         resp.raise_for_status()
+        return {"ok": True, "sessionId": session_id}
         return {"ok": True, "sessionId": session_id}
 
 
