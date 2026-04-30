@@ -108,6 +108,9 @@ RUN curl -fsSL "https://github.com/wandelbotsgmbh/nova-cli/releases/download/${N
     | tar -xz -C /usr/local/bin \
     && chmod +x /usr/local/bin/nova
 
+# ── Vercel CLI ───────────────────────────────────────────────────────
+RUN npm install -g vercel
+
 # ── Docker CLI (no daemon) ───────────────────────────────────────────
 RUN curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker.gpg \
     && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" \
