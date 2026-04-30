@@ -26,9 +26,10 @@
 
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 
 const LINEAR_API_KEY = process.env.LINEAR_API_KEY;
-if (!LINEAR_API_KEY) {
+if (!LINEAR_API_KEY && process.argv[1] === fileURLToPath(import.meta.url)) {
   console.log("[linear-agent] LINEAR_API_KEY not set, exiting");
   process.exit(0);
 }
@@ -274,7 +275,7 @@ async function addComment(issueId, body) {
 
 // ── OpenCode session management ─────────────────────────────────
 
-async function createOpenCodeSession(title, directory) {
+export async function createOpenCodeSession(title, directory) {
   const body = { lane: "now", title };
   if (directory) body.directory = directory;
   const res = await fetch(`${OPENCODE_URL}/session`, {
@@ -287,7 +288,7 @@ async function createOpenCodeSession(title, directory) {
   return data.id;
 }
 
-async function sendPromptToSession(sessionId, prompt) {
+export async function sendPromptToSession(sessionId, prompt) {
   const res = await fetch(`${OPENCODE_URL}/session/${sessionId}/prompt`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -591,7 +592,7 @@ async function startTicket(ticket) {
   }
 }
 
-function buildPrompt(ticket, repoPath) {
+export function buildPrompt(ticket, repoPath) {
   const parts = [
     `## Assigned Linear Ticket: ${ticket.identifier}`,
     "",
@@ -839,7 +840,10 @@ process.on("SIGTERM", () => {
   running = false;
 });
 
-main().catch((err) => {
-  log("error", "Fatal error", { error: err.message, stack: err.stack });
-  process.exit(1);
-});
+// Only run the main loop when executed directly (not when imported in tests)
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((err) => {
+    log("error", "Fatal error", { error: err.message, stack: err.stack });
+    process.exit(1);
+  });
+}
