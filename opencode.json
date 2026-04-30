@@ -70,8 +70,8 @@
   "mcp": {
     "linear": {
       "type": "local",
-      "command": ["node", "/app/scripts/linear-mcp.mjs"],
-      "enabled": true,
+      "command": ["node", "./scripts/linear-mcp.mjs"],
+      "enabled": false,
       "timeout": 60000,
       "environment": {
         "LINEAR_API_KEY": "{env:LINEAR_API_KEY}",
@@ -81,7 +81,7 @@
     "crabcode-bridge": {
       "type": "remote",
       "url": "http://127.0.0.1:8081/mcp-root/",
-      "enabled": true
+      "enabled": false
     }
   }
 }

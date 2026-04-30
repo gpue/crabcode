@@ -379,6 +379,11 @@ MCP_PID=$!
 # /workspace/opencode.json provides full provider + MCP config.
 OPENCODE_DIR="${WORKSPACE_DIR}"
 echo "[opencode] Starting in ${OPENCODE_DIR}"
+
+# Re-enable MCPs and providers that are disabled in the committed opencode.json
+# (disabled by default so the project can be opened locally without failures)
+export OPENCODE_CONFIG_CONTENT='{"mcp":{"linear":{"enabled":true},"crabcode-bridge":{"enabled":true}}}'
+
 (cd "${OPENCODE_DIR}" && while true; do
     echo "[opencode] Launching opencode web..."
     env opencode web \
