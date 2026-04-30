@@ -24,7 +24,7 @@ TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 OPENCODE_HOST = os.environ.get("OPENCODE_HOST", "127.0.0.1")
 OPENCODE_PORT = os.environ.get("OPENCODE_PORT", "4096")
-OPENCODE_BASE = f"http://{OPENCODE_HOST}:{OPENCODE_PORT}/api"
+OPENCODE_BASE = f"http://{OPENCODE_HOST}:{OPENCODE_PORT}"
 
 MCP_BRIDGE_PORT = int(os.environ.get("MCP_BRIDGE_PORT", "8081"))
 BASE_PATH = os.environ.get("BASE_PATH", "")
@@ -79,31 +79,62 @@ async def _fetch_sessions() -> list[dict[str, Any]]:
 
 
 async def _send_prompt_async(session_id: str, payload: PromptStartRequest) -> None:
-    """Send a prompt via OpenCode's async endpoint (fire-and-forget on OC side)."""
+    """Send a prompt to an OpenCode session.
+    Tries /api/session/{id}/prompt_async first (works under opencode web),
+    falls back to /session/{id}/message (synchronous, always available)."""
     body: dict[str, Any] = {
         "parts": [{"type": "text", "text": payload.prompt}],
     }
     if payload.modelID and payload.providerID:
         body["model"] = f"{payload.providerID}/{payload.modelID}"
     try:
-        async with _client() as client:
-            response = await client.post(
+        async with httpx.AsyncClient(
+            base_url=f"{OPENCODE_BASE}/api", auth=_auth(), timeout=30.0
+        ) as api_client:
+            response = await api_client.post(
                 f"/session/{session_id}/prompt_async",
                 json=body,
-                timeout=30.0,
+            )
+            if response.status_code < 400:
+                ACTIVE_RUNS.add(session_id)
+                print(
+                    f"[mcp_bridge] prompt_async sent for session {session_id}",
+                    flush=True,
+                )
+                return
+            print(
+                f"[mcp_bridge] prompt_async returned {response.status_code}, falling back to /message",
+                flush=True,
+            )
+    except Exception as exc:
+        print(
+            f"[mcp_bridge] prompt_async error, falling back to /message: {exc}",
+            flush=True,
+        )
+
+    # Fallback: synchronous /message endpoint (blocks until LLM finishes)
+    try:
+        async with _client() as client:
+            response = await client.post(
+                f"/session/{session_id}/message",
+                json=body,
+                timeout=600.0,
             )
             if response.status_code >= 400:
                 err_body = response.text[:500]
                 print(
-                    f"[mcp_bridge] prompt_async returned {response.status_code} for {session_id}: {err_body}",
+                    f"[mcp_bridge] /message failed {response.status_code}: {err_body}",
                     flush=True,
                 )
                 response.raise_for_status()
         ACTIVE_RUNS.add(session_id)
-        print(f"[mcp_bridge] prompt_async sent for session {session_id}", flush=True)
+        print(
+            f"[mcp_bridge] prompt sent via /message for session {session_id}",
+            flush=True,
+        )
     except Exception as exc:
         print(
-            f"[mcp_bridge] ERROR: prompt_async failed for session {session_id}: {exc}",
+            f"[mcp_bridge] ERROR: prompt failed for session {session_id}: {exc}",
             flush=True,
         )
         raise
@@ -295,11 +326,22 @@ async def get_session(session_id: str) -> dict[str, Any]:
 
 @mcp.tool(name="send_prompt")
 async def send_prompt(session_id: str, prompt: str) -> dict[str, Any]:
+    body = {"parts": [{"type": "text", "text": prompt}]}
+    # Try /api/prompt_async first, fall back to /message
+    try:
+        async with httpx.AsyncClient(
+            base_url=f"{OPENCODE_BASE}/api", auth=_auth(), timeout=30.0
+        ) as api_client:
+            resp = await api_client.post(
+                f"/session/{session_id}/prompt_async", json=body
+            )
+            if resp.status_code < 400:
+                return {"ok": True, "sessionId": session_id}
+    except Exception:
+        pass
     async with _client() as client:
         resp = await client.post(
-            f"/session/{session_id}/prompt_async",
-            json={"parts": [{"type": "text", "text": prompt}]},
-            timeout=30.0,
+            f"/session/{session_id}/message", json=body, timeout=300.0
         )
         resp.raise_for_status()
         return {"ok": True, "sessionId": session_id}
