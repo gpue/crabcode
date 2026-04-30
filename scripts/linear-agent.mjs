@@ -573,8 +573,8 @@ async function checkActiveTickets() {
           ticketId,
           `✅ **crab** has finished working on this ticket (${elapsedMin}min).\n\n${summary}`
         );
-        await moveTicketToState(ticketId, "Done");
-        await sendTelegram(`✅ *Done* ${info.identifier}: ${info.title} (${elapsedMin}min)`);
+        await moveTicketToState(ticketId, "In Review");
+        await sendTelegram(`🔍 *In Review* ${info.identifier}: ${info.title} (${elapsedMin}min)`);
 
         activeTickets.delete(ticketId);
         finishedTickets.add(ticketId);

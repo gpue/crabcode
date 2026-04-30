@@ -1,0 +1,100 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model OAuthConnection {
+  id           String   @id @default(cuid())
+  provider     String   // "google" | "microsoft"
+  email        String
+  accessToken  String
+  refreshToken String?
+  expiresAt    DateTime?
+  scopes       String[]
+  syncToken    String?  // Google Calendar incremental sync token
+  deltaLink    String?  // Microsoft Graph incremental sync delta link
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([provider, email])
+}
+
+model CalendarEvent {
+  id          String    @id @default(cuid())
+  externalId  String
+  source      String    // "google" | "microsoft"
+  title       String
+  description String?
+  startTime   DateTime
+  endTime     DateTime
+  allDay      Boolean   @default(false)
+  location    String?
+  recurrence  String?
+  url         String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([externalId, source])
+  @@index([startTime])
+  @@index([endTime])
+}
+
+model FeedToken {
+  id             String   @id @default(cuid())
+  token          String   @unique @default(cuid())
+  label          String
+  active         Boolean  @default(true)
+  calendarFilter String?  // optional JSON filter
+  createdAt      DateTime @default(now())
+  lastAccessedAt DateTime?
+}
+
+model MediaItem {
+  id          String    @id @default(cuid())
+  externalId  String
+  source      String    // "google_photos" | "google_drive"
+  filename    String
+  mimeType    String
+  takenAt     DateTime?
+  lat         Float?
+  lng         Float?
+  thumbnailUrl String?
+  webUrl      String?
+  width       Int?
+  height      Int?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([externalId, source])
+  @@index([takenAt])
+}
+
+model JournalEntry {
+  id        String   @id @default(cuid())
+  date      DateTime @unique // date only (stored as midnight UTC)
+  content   String   // markdown
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Location {
+  id        String   @id @default(cuid())
+  label     String
+  lat       Float
+  lng       Float
+  date      DateTime
+  type      String   // "past" | "future"
+  source    String   // "manual" | "timeline" | "exif" | "calendar"
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([date])
+}
