@@ -442,6 +442,112 @@ async def _normalize_mcp_accept(request, call_next):
 class SessionCreateRequest(BaseModel):
     lane: str = "now"
     title: str | None = None
+    directory: str | None = None
+
+
+# ── OpenChamber session-directory registration ──────────────────────
+# OpenChamber tracks which sessions belong to which workspace via a JSON
+# file.  When we create a session through the bridge (on behalf of the
+# linear-agent), OpenCode sets directory=CWD (/workspace) which doesn't
+# map to any OpenChamber workspace.  We patch the file so the session
+# shows up under the correct workspace in the OpenChamber UI.
+
+_OC_SESSIONS_DIR_FILE: str | None = None
+
+
+def _resolve_oc_sessions_file() -> str | None:
+    """Find OpenChamber's sessions-directories.json (cached after first hit)."""
+    global _OC_SESSIONS_DIR_FILE
+    if _OC_SESSIONS_DIR_FILE is not None:
+        return _OC_SESSIONS_DIR_FILE or None
+    import glob as _glob
+
+    candidates = [
+        os.path.expanduser(
+            "~/.local/share/openchamber/config/sessions-directories.json"
+        ),
+        os.path.expanduser("~/.config/openchamber/sessions-directories.json"),
+    ]
+    # Also check XDG overrides
+    xdg_data = os.environ.get("XDG_DATA_HOME", "")
+    if xdg_data:
+        candidates.insert(
+            0,
+            os.path.join(
+                xdg_data, "openchamber", "config", "sessions-directories.json"
+            ),
+        )
+    # Check persistent storage paths used in start.sh
+    for base in ["/workspace/.opencode/data/openchamber/config"]:
+        candidates.insert(0, os.path.join(base, "sessions-directories.json"))
+    for c in candidates:
+        if os.path.isfile(c):
+            _OC_SESSIONS_DIR_FILE = c
+            print(f"[mcp_bridge] OpenChamber sessions file: {c}", flush=True)
+            return c
+    _OC_SESSIONS_DIR_FILE = ""  # sentinel: not found
+    return None
+
+
+def _register_session_in_openchamber(session_id: str, directory: str) -> None:
+    """Add a session ID to the correct workspace in OpenChamber's mapping."""
+    filepath = _resolve_oc_sessions_file()
+    if not filepath:
+        return
+    try:
+        with open(filepath, "r") as f:
+            data = json.load(f)
+        folders_map: dict = data.get("foldersMap", {})
+        key = directory  # e.g. "/workspace/crabcode"
+        if key not in folders_map:
+            # Create a new folder entry for this workspace
+            import time as _time
+
+            now = int(_time.time() * 1000)
+            folders_map[key] = [
+                {
+                    "id": f"folder_{now}_agent",
+                    "name": "agent",
+                    "sessionIds": [session_id],
+                    "createdAt": now,
+                    "parentId": None,
+                }
+            ]
+        else:
+            # Find or create an "agent" folder within the workspace
+            agent_folder = None
+            for folder in folders_map[key]:
+                if folder.get("name") == "agent":
+                    agent_folder = folder
+                    break
+            if agent_folder:
+                if session_id not in agent_folder["sessionIds"]:
+                    agent_folder["sessionIds"].insert(0, session_id)
+            else:
+                import time as _time
+
+                now = int(_time.time() * 1000)
+                folders_map[key].append(
+                    {
+                        "id": f"folder_{now}_agent",
+                        "name": "agent",
+                        "sessionIds": [session_id],
+                        "createdAt": now,
+                        "parentId": None,
+                    }
+                )
+        data["foldersMap"] = folders_map
+        data["updatedAt"] = int(__import__("time").time() * 1000)
+        with open(filepath, "w") as f:
+            json.dump(data, f, indent=2)
+        print(
+            f"[mcp_bridge] Registered session {session_id} in OpenChamber workspace {directory}",
+            flush=True,
+        )
+    except Exception as e:
+        print(
+            f"[mcp_bridge] Failed to register session in OpenChamber: {e}", flush=True
+        )
 
 
 @app.post("/session")
@@ -472,6 +578,9 @@ async def create_session_internal(
             status_code=502,
             detail=f"OpenCode did not return session id: {json.dumps(created)[:200]}",
         )
+    # Register session in OpenChamber if a target directory was provided
+    if payload and payload.directory:
+        _register_session_in_openchamber(session_id, payload.directory)
     return {"id": session_id}
 
 

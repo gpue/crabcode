@@ -274,11 +274,13 @@ async function addComment(issueId, body) {
 
 // ── OpenCode session management ─────────────────────────────────
 
-async function createOpenCodeSession(title) {
+async function createOpenCodeSession(title, directory) {
+  const body = { lane: "now", title };
+  if (directory) body.directory = directory;
   const res = await fetch(`${OPENCODE_URL}/session`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ lane: "now", title }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Failed to create session: ${res.status}`);
   const data = await res.json();
@@ -550,7 +552,7 @@ async function startTicket(ticket) {
     );
 
     // 3. Create OpenCode session
-    const sessionId = await createOpenCodeSession(`${ticket.identifier}: ${ticket.title}`);
+    const sessionId = await createOpenCodeSession(`${ticket.identifier}: ${ticket.title}`, repoPath);
     log("info", `Created OpenCode session ${sessionId} for ${ticket.identifier}`);
 
     // 4. Build prompt from ticket
@@ -564,6 +566,7 @@ async function startTicket(ticket) {
       sessionId,
       identifier: ticket.identifier,
       title: ticket.title,
+      repoPath,
       startedAt: Date.now(),
       lastChecked: Date.now(),
       lastSeenCommentAt: new Date().toISOString(),
@@ -691,11 +694,11 @@ async function checkNewComments() {
           const session = await getSessionStatus(sessionId);
           if (!session) {
             log("info", `Session ${sessionId} gone, creating new one for ${info.identifier}`);
-            sessionId = await createOpenCodeSession(`${info.identifier}: ${info.title}`);
+            sessionId = await createOpenCodeSession(`${info.identifier}: ${info.title}`, info.repoPath);
             info.sessionId = sessionId;
           }
         } else {
-          sessionId = await createOpenCodeSession(`${info.identifier}: ${info.title}`);
+          sessionId = await createOpenCodeSession(`${info.identifier}: ${info.title}`, info.repoPath);
           info.sessionId = sessionId;
         }
 
