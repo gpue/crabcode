@@ -455,10 +455,22 @@ async def create_session_internal(
         response = await client.post("/session", json=body if body else None)
         response.raise_for_status()
         created = response.json()
-    session_id = created.get("id")
+    print(
+        f"[mcp_bridge] POST /session response: {json.dumps(created)[:500]}", flush=True
+    )
+    # OpenCode may return the session object directly or nested
+    session_id = created.get("id") if isinstance(created, dict) else None
+    if not isinstance(session_id, str):
+        # Try common nested structures
+        for key in ("session", "data"):
+            nested = created.get(key, {}) if isinstance(created, dict) else {}
+            if isinstance(nested, dict) and isinstance(nested.get("id"), str):
+                session_id = nested["id"]
+                break
     if not isinstance(session_id, str):
         raise HTTPException(
-            status_code=502, detail="OpenCode did not return session id"
+            status_code=502,
+            detail=f"OpenCode did not return session id: {json.dumps(created)[:200]}",
         )
     return {"id": session_id}
 
