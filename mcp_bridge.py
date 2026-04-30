@@ -24,7 +24,7 @@ TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 OPENCODE_HOST = os.environ.get("OPENCODE_HOST", "127.0.0.1")
 OPENCODE_PORT = os.environ.get("OPENCODE_PORT", "4096")
-OPENCODE_BASE = f"http://{OPENCODE_HOST}:{OPENCODE_PORT}"
+OPENCODE_BASE = f"http://{OPENCODE_HOST}:{OPENCODE_PORT}/api"
 
 MCP_BRIDGE_PORT = int(os.environ.get("MCP_BRIDGE_PORT", "8081"))
 BASE_PATH = os.environ.get("BASE_PATH", "")
@@ -92,7 +92,13 @@ async def _send_prompt_async(session_id: str, payload: PromptStartRequest) -> No
                 json=body,
                 timeout=30.0,
             )
-            response.raise_for_status()
+            if response.status_code >= 400:
+                err_body = response.text[:500]
+                print(
+                    f"[mcp_bridge] prompt_async returned {response.status_code} for {session_id}: {err_body}",
+                    flush=True,
+                )
+                response.raise_for_status()
         ACTIVE_RUNS.add(session_id)
         print(f"[mcp_bridge] prompt_async sent for session {session_id}", flush=True)
     except Exception as exc:
