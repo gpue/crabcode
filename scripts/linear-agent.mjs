@@ -42,15 +42,9 @@ const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_NOTIFY_TARGET || "";
 
 // ── Project → repo routing ──────────────────────────────────────
-// Maps Linear project name (lowercased) to workspace path.
-// Add entries here for explicit overrides; otherwise dynamic scanning is used.
-const PROJECT_REPO_MAP = {
-  "crabcode": "/workspace/crabcode",
-  "formfactors": "/workspace/formfactors",
-};
 const WORKSPACE_ROOT = "/workspace";
 // Directories to skip when scanning workspace for repos
-const WORKSPACE_IGNORE = new Set([".opencode", "node_modules", ".git"]);
+const WORKSPACE_IGNORE = new Set([".opencode", "node_modules", ".git", "dist", "build", ".next"]);
 
 // Tickets currently being processed (id → { sessionId, startedAt })
 const activeTickets = new Map();
@@ -323,24 +317,58 @@ async function getSessionStatus(sessionId) {
 
 /**
  * Scan /workspace to build a tree of projects and sub-repos for classification.
- * Returns an array of { name, path, children: string[] }.
+ * Collects metadata (package.json, README, git presence) for each directory
+ * to give the classifier better signal.
+ * Returns an array of { name, path, isGitRepo, pkgName, pkgDescription, readmeHeadline, children[] }.
  */
 function scanWorkspace() {
   const entries = [];
+
+  function readRepoMeta(dirPath) {
+    let pkgName = null;
+    let pkgDescription = null;
+    let readmeHeadline = null;
+    let isGitRepo = false;
+
+    try { isGitRepo = fs.statSync(path.join(dirPath, ".git")).isDirectory(); } catch {}
+
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(dirPath, "package.json"), "utf8"));
+      pkgName = pkg.name || null;
+      pkgDescription = pkg.description || null;
+    } catch {}
+
+    if (!pkgDescription) {
+      try {
+        const readme = fs.readFileSync(path.join(dirPath, "README.md"), "utf8");
+        // Grab the first non-empty, non-heading line as a description
+        const lines = readme.split("\n").map(l => l.trim()).filter(Boolean);
+        readmeHeadline = (lines.find(l => !l.startsWith("#")) || lines[0] || "").substring(0, 120);
+      } catch {}
+    }
+
+    return { isGitRepo, pkgName, pkgDescription, readmeHeadline };
+  }
+
   try {
     for (const name of fs.readdirSync(WORKSPACE_ROOT)) {
       if (WORKSPACE_IGNORE.has(name) || name.startsWith(".")) continue;
       const fullPath = path.join(WORKSPACE_ROOT, name);
       if (!fs.statSync(fullPath).isDirectory()) continue;
+
+      const meta = readRepoMeta(fullPath);
       const children = [];
       try {
         for (const child of fs.readdirSync(fullPath)) {
           if (WORKSPACE_IGNORE.has(child) || child.startsWith(".")) continue;
           const childPath = path.join(fullPath, child);
-          if (fs.statSync(childPath).isDirectory()) children.push(child);
+          if (fs.statSync(childPath).isDirectory()) {
+            const childMeta = readRepoMeta(childPath);
+            children.push({ name: child, path: childPath, ...childMeta });
+          }
         }
       } catch { /* permission errors etc */ }
-      entries.push({ name, path: fullPath, children });
+      entries.push({ name, path: fullPath, ...meta, children });
     }
   } catch (err) {
     log("error", `Failed to scan workspace: ${err.message}`);
@@ -349,31 +377,82 @@ function scanWorkspace() {
 }
 
 /**
+ * Format a scanned entry for display in the classification prompt.
+ */
+function formatEntry(e, indent = "  ") {
+  const tags = [];
+  if (e.isGitRepo) tags.push("git repo");
+  if (e.pkgName) tags.push(`pkg: "${e.pkgName}"`);
+  const tagStr = tags.length ? ` [${tags.join(", ")}]` : "";
+  const desc = e.pkgDescription || e.readmeHeadline || "";
+  const descStr = desc ? `\n${indent}  description: ${desc}` : "";
+  return `${indent}- ${e.name}/ (${e.path})${tagStr}${descStr}`;
+}
+
+/**
+ * Collect all scannable entries (top-level + children) as a flat list for matching.
+ */
+function flattenEntries(tree) {
+  const flat = [];
+  for (const entry of tree) {
+    flat.push(entry);
+    if (entry.children) {
+      for (const child of entry.children) flat.push(child);
+    }
+  }
+  return flat;
+}
+
+/**
  * Resolve which repo path to work in for a given ticket.
- * 1. If the ticket has a Linear project whose name matches PROJECT_REPO_MAP → use it.
- * 2. Otherwise, ask CrabTalk LLM with the full workspace tree to classify.
+ * 1. Deterministic: match ticket's Linear project name against scanned repo names/pkgNames.
+ * 2. LLM: ask CrabTalk with enriched workspace tree + ticket metadata.
  * 3. If classification fails, REFUSE to process — notify on Telegram and skip.
  */
 async function resolveRepo(ticket) {
-  // 1. Static project map
+  const tree = scanWorkspace();
+  const allEntries = flattenEntries(tree);
+
+  // 1. Deterministic match against ticket's Linear project name
   if (ticket.project?.name) {
-    const key = ticket.project.name.toLowerCase();
-    for (const [mapKey, repoPath] of Object.entries(PROJECT_REPO_MAP)) {
-      if (key.includes(mapKey)) {
-        log("info", `Routing ${ticket.identifier} to ${repoPath} via project '${ticket.project.name}'`);
-        return repoPath;
-      }
+    const projectLower = ticket.project.name.toLowerCase();
+    // Exact match on directory name or package.json name
+    const match = allEntries.find(
+      (e) =>
+        e.name.toLowerCase() === projectLower ||
+        (e.pkgName && e.pkgName.toLowerCase() === projectLower)
+    );
+    if (match) {
+      log("info", `Routing ${ticket.identifier} to ${match.path} via project name '${ticket.project.name}'`);
+      return match.path;
+    }
+    // Substring/fuzzy match (e.g. project "Diary App" matches directory "diary")
+    const fuzzy = allEntries.find(
+      (e) =>
+        projectLower.includes(e.name.toLowerCase()) ||
+        (e.pkgName && projectLower.includes(e.pkgName.toLowerCase()))
+    );
+    if (fuzzy) {
+      log("info", `Routing ${ticket.identifier} to ${fuzzy.path} via fuzzy project match '${ticket.project.name}'`);
+      return fuzzy.path;
     }
   }
 
-  // 2. CrabTalk LLM classification with full workspace tree
-  const tree = scanWorkspace();
+  // 2. CrabTalk LLM classification with enriched workspace tree
   const treeText = tree.map(e => {
-    const sub = e.children.length ? `\n    subdirs: ${e.children.join(", ")}` : "";
-    return `  - ${e.name}/ (${e.path})${sub}`;
+    const main = formatEntry(e);
+    const kids = (e.children || []).map(c => formatEntry(c, "      ")).join("\n");
+    return kids ? `${main}\n${kids}` : main;
   }).join("\n");
 
-  const classifyPrompt = `You are a ticket classifier. Given this workspace directory tree:\n\n${treeText}\n\nWhich directory should this ticket's work go into? Pick the most specific path (e.g. if the work is about a "diary" app and /workspace/gp/diary exists, answer "/workspace/gp/diary", not just "/workspace/gp").\n\nReply with ONLY the absolute path, nothing else.\n\nTicket: ${ticket.identifier} - ${ticket.title}\nDescription: ${(ticket.description || "").substring(0, 500)}`;
+  const ticketMeta = [
+    `Ticket: ${ticket.identifier} — ${ticket.title}`,
+    ticket.project?.name ? `Linear project: ${ticket.project.name}` : null,
+    ticket.labels?.nodes?.length ? `Labels: ${ticket.labels.nodes.map(l => l.name).join(", ")}` : null,
+    ticket.description ? `Description: ${ticket.description.substring(0, 500)}` : null,
+  ].filter(Boolean).join("\n");
+
+  const classifyPrompt = `You are a ticket classifier. Given this workspace directory tree:\n\n${treeText}\n\nWhich directory should this ticket's work go into? Pick the MOST SPECIFIC path. For example, if work is about a diary app and /workspace/gp/diary exists, answer "/workspace/gp/diary", NOT "/workspace/gp".\n\nReply with ONLY the absolute path, nothing else. No explanation, no quotes.\n\n${ticketMeta}`;
 
   try {
     const reply = await askCrabTalk(classifyPrompt);
@@ -385,18 +464,10 @@ async function resolveRepo(ticket) {
       return replyTrimmed;
     }
 
-    // Try matching against known project names
+    // Try matching against known entries
     const replyLower = replyTrimmed.toLowerCase();
-    for (const entry of tree) {
-      if (replyLower.includes(entry.name)) {
-        // Check if any child also matches
-        for (const child of entry.children) {
-          if (replyLower.includes(child)) {
-            const childPath = path.join(entry.path, child);
-            log("info", `CrabTalk classified ${ticket.identifier} → ${childPath} (fuzzy match)`);
-            return childPath;
-          }
-        }
+    for (const entry of allEntries) {
+      if (replyLower.includes(entry.name.toLowerCase())) {
         log("info", `CrabTalk classified ${ticket.identifier} → ${entry.path} (fuzzy match)`);
         return entry.path;
       }
@@ -493,8 +564,13 @@ function buildPrompt(ticket, repoPath) {
   ];
 
   if (repoPath) {
-    parts.push(`**Work in the repository at \`${repoPath}\`.**`);
-    parts.push("");
+    parts.push(
+      `**IMPORTANT: Your working directory is \`${repoPath}\`.**`,
+      `Before doing ANYTHING else, run \`cd ${repoPath} && pwd\` to confirm you are in the correct directory.`,
+      `ALL file reads, edits, and bash commands MUST target this directory.`,
+      `Do NOT create, modify, or read files outside of \`${repoPath}\`.`,
+      ""
+    );
   }
 
   parts.push(
