@@ -37,10 +37,10 @@ ACTIVE_RUNS: set[str] = set()
 
 class PromptStartRequest(BaseModel):
     prompt: str
-    providerID: str
-    modelID: str
-    variant: str
-    mode: str
+    providerID: str | None = None
+    modelID: str | None = None
+    variant: str | None = None
+    mode: str | None = None
 
 
 def _auth() -> httpx.BasicAuth | None:
@@ -78,26 +78,39 @@ async def _fetch_sessions() -> list[dict[str, Any]]:
         return data if isinstance(data, list) else []
 
 
-async def _run_prompt_in_background(
-    session_id: str, payload: PromptStartRequest
-) -> None:
-    ACTIVE_RUNS.add(session_id)
+async def _send_prompt_async(session_id: str, payload: PromptStartRequest) -> None:
+    """Send a prompt via OpenCode's async endpoint (fire-and-forget on OC side)."""
+    body: dict[str, Any] = {
+        "parts": [{"type": "text", "text": payload.prompt}],
+    }
+    if payload.modelID and payload.providerID:
+        body["model"] = f"{payload.providerID}/{payload.modelID}"
     try:
         async with _client() as client:
             response = await client.post(
-                f"/session/{session_id}/message",
-                json={
-                    "parts": [{"type": "text", "text": payload.prompt}],
-                },
-                timeout=300.0,
+                f"/session/{session_id}/prompt_async",
+                json=body,
+                timeout=30.0,
             )
             response.raise_for_status()
-    finally:
-        ACTIVE_RUNS.discard(session_id)
+        ACTIVE_RUNS.add(session_id)
+        print(f"[mcp_bridge] prompt_async sent for session {session_id}", flush=True)
+    except Exception as exc:
+        print(
+            f"[mcp_bridge] ERROR: prompt_async failed for session {session_id}: {exc}",
+            flush=True,
+        )
+        raise
 
 
 def _run_prompt_job(session_id: str, payload: PromptStartRequest) -> None:
-    asyncio.run(_run_prompt_in_background(session_id, payload))
+    try:
+        asyncio.run(_send_prompt_async(session_id, payload))
+    except Exception as exc:
+        print(
+            f"[mcp_bridge] ERROR: background prompt job failed for {session_id}: {exc}",
+            flush=True,
+        )
 
 
 async def _fetch_messages(session_id: str, limit: int = 25) -> list[dict[str, Any]]:
@@ -278,10 +291,12 @@ async def get_session(session_id: str) -> dict[str, Any]:
 async def send_prompt(session_id: str, prompt: str) -> dict[str, Any]:
     async with _client() as client:
         resp = await client.post(
-            f"/session/{session_id}/message", json={"content": prompt}, timeout=300.0
+            f"/session/{session_id}/prompt_async",
+            json={"parts": [{"type": "text", "text": prompt}]},
+            timeout=30.0,
         )
         resp.raise_for_status()
-        return resp.json()
+        return {"ok": True, "sessionId": session_id}
 
 
 @mcp.tool(name="get_messages")
@@ -446,7 +461,6 @@ async def create_session_internal(
 async def start_prompt_internal(
     session_id: str, payload: PromptStartRequest, background_tasks: BackgroundTasks
 ) -> dict[str, Any]:
-    ACTIVE_RUNS.add(session_id)
     background_tasks.add_task(_run_prompt_job, session_id, payload)
     return {"ok": True, "sessionId": session_id}
 
