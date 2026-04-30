@@ -18,6 +18,16 @@ set -uo pipefail
 
 echo "[start.sh] Booting crabcode container..."
 
+# ── Load workspace secrets (.env) ────────────────────────────────
+# .env is gitignored but may exist on the volume or be synced by the user.
+# Container-level env vars take precedence over .env values.
+if [ -f "${WORKSPACE_DIR:-/workspace}/crabcode/.env" ]; then
+    set -a
+    . "${WORKSPACE_DIR:-/workspace}/crabcode/.env"
+    set +a
+    echo "[start.sh] Loaded secrets from workspace .env"
+fi
+
 # Check if workspace mount is responsive (timeout after 5s per attempt)
 MOUNT_OK=false
 for i in 1 2 3 4 5; do
