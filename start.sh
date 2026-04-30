@@ -380,9 +380,10 @@ MCP_PID=$!
 OPENCODE_DIR="${WORKSPACE_DIR}"
 echo "[opencode] Starting in ${OPENCODE_DIR}"
 
-# Re-enable MCPs and providers that are disabled in the committed opencode.json
-# (disabled by default so the project can be opened locally without failures)
-export OPENCODE_CONFIG_CONTENT='{"mcp":{"linear":{"enabled":true},"crabcode-bridge":{"enabled":true}}}'
+# Re-enable MCPs and providers on the server.
+# Provider and MCP configs are stripped from project opencode.json for local use,
+# so we define them fully here via OPENCODE_CONFIG_CONTENT.
+export OPENCODE_CONFIG_CONTENT='{"provider":{"github-copilot":{"npm":"@ai-sdk/openai-compatible","name":"GitHub Copilot","options":{"baseURL":"http://127.0.0.1:18791/v1"},"models":{"claude-opus-4.6":{"name":"Claude Opus 4.6","attachments":true,"toolcall":true},"claude-sonnet-4":{"name":"Claude Sonnet 4","attachments":true,"toolcall":true},"claude-sonnet-4.6":{"name":"Claude Sonnet 4.6","attachments":true,"toolcall":true},"gpt-4o":{"name":"GPT-4o","toolcall":true},"o3-mini":{"name":"o3-mini","toolcall":true}}}},"mcp":{"linear":{"type":"local","command":["node","./scripts/linear-mcp.mjs"],"enabled":true,"timeout":60000,"environment":{"LINEAR_API_KEY":"{env:LINEAR_API_KEY}","LINEAR_TEAM_ID":"{env:LINEAR_TEAM_ID}"}},"crabcode-bridge":{"enabled":true}}}'
 
 (cd "${OPENCODE_DIR}" && while true; do
     echo "[opencode] Launching opencode web..."
