@@ -22,7 +22,10 @@
  *   LINEAR_POLL_INTERVAL_MS - Poll interval in ms (default: 30000)
  *   OPENCODE_MCP_URL        - OpenCode MCP bridge URL (default: http://127.0.0.1:8081)
  */
-// version: 2
+// version: 3
+
+import fs from "fs";
+import path from "path";
 
 const LINEAR_API_KEY = process.env.LINEAR_API_KEY;
 if (!LINEAR_API_KEY) {
@@ -39,13 +42,15 @@ const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_NOTIFY_TARGET || "";
 
 // ── Project → repo routing ──────────────────────────────────────
-// Maps Linear project name (lowercased) to workspace repo path.
-// Add entries here as new projects/repos are created.
+// Maps Linear project name (lowercased) to workspace path.
+// Add entries here for explicit overrides; otherwise dynamic scanning is used.
 const PROJECT_REPO_MAP = {
   "crabcode": "/workspace/crabcode",
   "formfactors": "/workspace/formfactors",
 };
-const DEFAULT_REPO = "/workspace/crabcode";
+const WORKSPACE_ROOT = "/workspace";
+// Directories to skip when scanning workspace for repos
+const WORKSPACE_IGNORE = new Set([".opencode", "node_modules", ".git"]);
 
 // Tickets currently being processed (id → { sessionId, startedAt })
 const activeTickets = new Map();
@@ -317,10 +322,37 @@ async function getSessionStatus(sessionId) {
 // ── Ticket processing ───────────────────────────────────────────
 
 /**
+ * Scan /workspace to build a tree of projects and sub-repos for classification.
+ * Returns an array of { name, path, children: string[] }.
+ */
+function scanWorkspace() {
+  const entries = [];
+  try {
+    for (const name of fs.readdirSync(WORKSPACE_ROOT)) {
+      if (WORKSPACE_IGNORE.has(name) || name.startsWith(".")) continue;
+      const fullPath = path.join(WORKSPACE_ROOT, name);
+      if (!fs.statSync(fullPath).isDirectory()) continue;
+      const children = [];
+      try {
+        for (const child of fs.readdirSync(fullPath)) {
+          if (WORKSPACE_IGNORE.has(child) || child.startsWith(".")) continue;
+          const childPath = path.join(fullPath, child);
+          if (fs.statSync(childPath).isDirectory()) children.push(child);
+        }
+      } catch { /* permission errors etc */ }
+      entries.push({ name, path: fullPath, children });
+    }
+  } catch (err) {
+    log("error", `Failed to scan workspace: ${err.message}`);
+  }
+  return entries;
+}
+
+/**
  * Resolve which repo path to work in for a given ticket.
  * 1. If the ticket has a Linear project whose name matches PROJECT_REPO_MAP → use it.
- * 2. Otherwise, ask the LLM to classify the ticket and parse the response.
- * 3. Fall back to DEFAULT_REPO if LLM response is unrecognisable.
+ * 2. Otherwise, ask CrabTalk LLM with the full workspace tree to classify.
+ * 3. If classification fails, REFUSE to process — notify on Telegram and skip.
  */
 async function resolveRepo(ticket) {
   // 1. Static project map
@@ -334,31 +366,49 @@ async function resolveRepo(ticket) {
     }
   }
 
-  // 2. CrabTalk LLM fallback
-  const repoList = Object.entries(PROJECT_REPO_MAP)
-    .map(([name, path]) => `- ${name}: ${path}`)
-    .join("\n");
+  // 2. CrabTalk LLM classification with full workspace tree
+  const tree = scanWorkspace();
+  const treeText = tree.map(e => {
+    const sub = e.children.length ? `\n    subdirs: ${e.children.join(", ")}` : "";
+    return `  - ${e.name}/ (${e.path})${sub}`;
+  }).join("\n");
 
-  const classifyPrompt = `Given these repositories:\n${repoList}\n\nWhich repository does this ticket belong to? Reply with ONLY the repository name (e.g. "crabcode" or "formfactors"), nothing else.\n\nTicket title: ${ticket.title}\nTicket description: ${(ticket.description || "").substring(0, 300)}`;
+  const classifyPrompt = `You are a ticket classifier. Given this workspace directory tree:\n\n${treeText}\n\nWhich directory should this ticket's work go into? Pick the most specific path (e.g. if the work is about a "diary" app and /workspace/gp/diary exists, answer "/workspace/gp/diary", not just "/workspace/gp").\n\nReply with ONLY the absolute path, nothing else.\n\nTicket: ${ticket.identifier} - ${ticket.title}\nDescription: ${(ticket.description || "").substring(0, 500)}`;
 
   try {
     const reply = await askCrabTalk(classifyPrompt);
-    const replyLower = reply.toLowerCase();
+    const replyTrimmed = reply.trim().replace(/["'`]/g, "");
 
-    for (const [mapKey, repoPath] of Object.entries(PROJECT_REPO_MAP)) {
-      if (replyLower.includes(mapKey)) {
-        log("info", `CrabTalk classified ${ticket.identifier} → ${repoPath}`);
-        return repoPath;
+    // Validate the reply is a real path under /workspace
+    if (replyTrimmed.startsWith("/workspace/") && fs.existsSync(replyTrimmed)) {
+      log("info", `CrabTalk classified ${ticket.identifier} → ${replyTrimmed}`);
+      return replyTrimmed;
+    }
+
+    // Try matching against known project names
+    const replyLower = replyTrimmed.toLowerCase();
+    for (const entry of tree) {
+      if (replyLower.includes(entry.name)) {
+        // Check if any child also matches
+        for (const child of entry.children) {
+          if (replyLower.includes(child)) {
+            const childPath = path.join(entry.path, child);
+            log("info", `CrabTalk classified ${ticket.identifier} → ${childPath} (fuzzy match)`);
+            return childPath;
+          }
+        }
+        log("info", `CrabTalk classified ${ticket.identifier} → ${entry.path} (fuzzy match)`);
+        return entry.path;
       }
     }
 
-    log("warn", `CrabTalk classification unclear for ${ticket.identifier}, reply: '${reply}'. Using default.`);
+    log("warn", `CrabTalk classification unclear for ${ticket.identifier}, reply: '${reply}'.`);
   } catch (err) {
-    log("warn", `CrabTalk classification failed for ${ticket.identifier}: ${err.message}. Using default.`);
+    log("warn", `CrabTalk classification failed for ${ticket.identifier}: ${err.message}.`);
   }
 
-  // 3. Default
-  return DEFAULT_REPO;
+  // 3. REFUSE — don't guess. Notify and skip.
+  return null;
 }
 
 async function startTicket(ticket) {
@@ -368,6 +418,16 @@ async function startTicket(ticket) {
   try {
     // 0. Resolve target repo
     const repoPath = await resolveRepo(ticket);
+    if (!repoPath) {
+      log("warn", `Could not determine repo for ${ticket.identifier}, skipping.`);
+      await addComment(
+        ticket.id,
+        `🦀 **crab** could not determine which repository this ticket belongs to.\n\nPlease set a Linear project on this ticket, or add more context to the description so I can classify it.`
+      );
+      await sendTelegram(`⚠️ *${ticket.identifier}*: Could not classify repo. Skipping.\nPlease set a Linear project on the ticket.`);
+      finishedTickets.add(ticket.id);
+      return;
+    }
     log("info", `Target repo for ${ticket.identifier}: ${repoPath}`);
 
     // 1. Move to "In Progress"
