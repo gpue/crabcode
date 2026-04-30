@@ -83,8 +83,6 @@ async def _send_prompt(session_id: str, payload: PromptStartRequest) -> None:
     body: dict[str, Any] = {
         "parts": [{"type": "text", "text": payload.prompt}],
     }
-    if payload.modelID and payload.providerID:
-        body["model"] = f"{payload.providerID}/{payload.modelID}"
     try:
         async with _client() as client:
             response = await client.post(
@@ -93,7 +91,7 @@ async def _send_prompt(session_id: str, payload: PromptStartRequest) -> None:
                 timeout=600.0,
             )
             if response.status_code >= 400:
-                err_body = response.text[:500]
+                err_body = response.text[:1000]
                 print(
                     f"[mcp_bridge] /message returned {response.status_code} for {session_id}: {err_body}",
                     flush=True,
