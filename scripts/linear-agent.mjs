@@ -156,6 +156,15 @@ async function linearQuery(query, variables = {}) {
     },
     body: JSON.stringify({ query, variables }),
   });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Linear API HTTP ${res.status}: ${text.substring(0, 100)}`);
+  }
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.includes("json")) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Linear API returned non-JSON (${contentType}): ${text.substring(0, 100)}`);
+  }
   const json = await res.json();
   if (json.errors) {
     throw new Error(json.errors.map((e) => e.message).join(", "));
@@ -190,7 +199,7 @@ async function resolveCrabUserId() {
 async function fetchCrabTickets(userId) {
   const filter = {
     assignee: { id: { eq: userId } },
-    state: { type: { in: ["started", "unstarted"] } },
+    state: { type: { in: ["backlog", "started", "unstarted"] } },
   };
   if (LINEAR_TEAM_ID) filter.team = { id: { eq: LINEAR_TEAM_ID } };
 
