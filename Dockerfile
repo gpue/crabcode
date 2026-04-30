@@ -88,7 +88,7 @@ RUN curl -fsSL "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release
 RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
 # ── zip / unzip / openvpn ────────────────────────────────────────────
-RUN apt-get update && apt-get install -y --no-install-recommends zip unzip openvpn \
+RUN apt-get update && apt-get install -y --no-install-recommends zip unzip openvpn postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # ── glab (GitLab CLI) ───────────────────────────────────────────────
