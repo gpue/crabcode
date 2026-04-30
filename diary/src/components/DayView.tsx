@@ -1,6 +1,32 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
+
+/** Minimal markdown → HTML renderer (no external deps). */
+function renderMarkdown(md: string): string {
+  return md
+    // Headings
+    .replace(/^### (.+)$/gm, "<h3 class=\"text-base font-semibold mt-4 mb-1\">$1</h3>")
+    .replace(/^## (.+)$/gm, "<h2 class=\"text-lg font-semibold mt-5 mb-1\">$1</h2>")
+    .replace(/^# (.+)$/gm, "<h1 class=\"text-xl font-bold mt-6 mb-2\">$1</h1>")
+    // Bold / italic
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    // Inline code
+    .replace(/`(.+?)`/g, "<code class=\"bg-gray-700 px-1 rounded text-xs font-mono\">$1</code>")
+    // Links
+    .replace(/\[(.+?)\]\((.+?)\)/g, "<a href=\"$2\" class=\"text-blue-400 underline\" target=\"_blank\" rel=\"noopener\">$1</a>")
+    // Unordered list items
+    .replace(/^[-*] (.+)$/gm, "<li class=\"ml-4 list-disc\">$1</li>")
+    // Blockquotes
+    .replace(/^> (.+)$/gm, "<blockquote class=\"border-l-2 border-gray-600 pl-3 text-gray-400 italic\">$1</blockquote>")
+    // Horizontal rule
+    .replace(/^---$/gm, "<hr class=\"border-gray-700 my-3\" />")
+    // Paragraphs: blank lines → paragraph breaks
+    .replace(/\n\n/g, "</p><p class=\"mb-2\">")
+    // Line breaks within paragraphs
+    .replace(/\n/g, "<br />");
+}
 
 interface JournalEntry {
   id?: string;
@@ -49,6 +75,9 @@ export default function DayView({ date, journalEntry, events, media, locations }
   const [content, setContent] = useState(journalEntry?.content ?? "");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [preview, setPreview] = useState(false);
+
+  const renderedMarkdown = useMemo(() => renderMarkdown(content), [content]);
 
   const prevDate = new Date(date + "T00:00:00.000Z");
   prevDate.setUTCDate(prevDate.getUTCDate() - 1);
@@ -80,13 +109,28 @@ export default function DayView({ date, journalEntry, events, media, locations }
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Journal */}
         <div className="lg:col-span-2 space-y-4">
-          <h2 className="font-medium text-gray-300">Journal</h2>
-          <textarea
-            className="w-full h-64 bg-gray-800 border border-gray-700 rounded p-3 text-sm font-mono resize-none focus:outline-none focus:border-blue-500"
-            placeholder="Write your journal entry (markdown supported)..."
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-          />
+          <div className="flex items-center gap-3 mb-1">
+            <h2 className="font-medium text-gray-300">Journal</h2>
+            <button
+              onClick={() => setPreview(!preview)}
+              className="ml-auto text-xs px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-400"
+            >
+              {preview ? "Edit" : "Preview"}
+            </button>
+          </div>
+          {preview ? (
+            <div
+              className="w-full min-h-64 bg-gray-800 border border-gray-700 rounded p-3 text-sm prose prose-invert max-w-none"
+              dangerouslySetInnerHTML={{ __html: `<p class="mb-2">${renderedMarkdown}</p>` }}
+            />
+          ) : (
+            <textarea
+              className="w-full h-64 bg-gray-800 border border-gray-700 rounded p-3 text-sm font-mono resize-none focus:outline-none focus:border-blue-500"
+              placeholder="Write your journal entry (markdown supported)..."
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+            />
+          )}
           <div className="flex items-center gap-3">
             <button
               onClick={saveJournal}
