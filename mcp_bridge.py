@@ -83,6 +83,12 @@ async def _send_prompt(session_id: str, payload: PromptStartRequest) -> None:
     body: dict[str, Any] = {
         "parts": [{"type": "text", "text": payload.prompt}],
     }
+    # Pass model selection if provided (OpenCode 1.15+ format)
+    if payload.providerID and payload.modelID:
+        body["model"] = {
+            "provider": payload.providerID,
+            "model": payload.modelID,
+        }
     try:
         async with _client() as client:
             response = await client.post(

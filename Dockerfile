@@ -23,7 +23,7 @@ RUN xcaddy build v${CADDY_VERSION} \
 FROM debian:bookworm-slim
 
 # ── Versions ────────────────────────────────────────────────────────
-ARG OPENCODE_VERSION=1.3.17
+ARG OPENCODE_VERSION=1.17.7
 ARG CRABTALK_VERSION=0.0.22
 ARG TAILSCALE_VERSION=1.82.0
 ARG GO_VERSION=1.24.2
@@ -54,8 +54,8 @@ RUN curl -fsSL "https://github.com/anomalyco/opencode/releases/download/v${OPENC
     && chmod +x /usr/local/bin/opencode
 
 # ── Install OpenChamber ─────────────────────────────────────────────
-RUN curl -fsSL https://raw.githubusercontent.com/openchamber/openchamber/main/scripts/install.sh | bash \
-    && (ls /root/.local/bin/openchamber 2>/dev/null && ln -sf /root/.local/bin/openchamber /usr/local/bin/openchamber || true)
+ARG OPENCHAMBER_VERSION=1.12.4
+RUN npm install -g @openchamber/web@${OPENCHAMBER_VERSION}
 
 # ── Install CrabTalk binary ─────────────────────────────────────────
 RUN curl -fsSL "https://github.com/gpue/crabtalk/releases/download/v${CRABTALK_VERSION}/crabtalk-linux-amd64.tar.gz" \

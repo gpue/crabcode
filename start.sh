@@ -395,7 +395,7 @@ echo "[opencode] Starting in ${OPENCODE_DIR}"
 # Re-enable MCPs and providers on the server.
 # Provider and MCP configs are stripped from project opencode.json for local use,
 # so we define them fully here via OPENCODE_CONFIG_CONTENT.
-export OPENCODE_CONFIG_CONTENT='{"provider":{"github-copilot":{"npm":"@ai-sdk/openai-compatible","name":"GitHub Copilot","options":{"baseURL":"http://127.0.0.1:18791/v1"},"models":{"claude-opus-4.6":{"name":"Claude Opus 4.6","attachments":true,"toolcall":true},"claude-sonnet-4":{"name":"Claude Sonnet 4","attachments":true,"toolcall":true},"claude-sonnet-4.6":{"name":"Claude Sonnet 4.6","attachments":true,"toolcall":true},"gpt-4o":{"name":"GPT-4o","toolcall":true},"o3-mini":{"name":"o3-mini","toolcall":true}}}},"mcp":{"linear":{"type":"local","command":["node","./scripts/linear-mcp.mjs"],"enabled":true,"timeout":60000,"environment":{"LINEAR_API_KEY":"{env:LINEAR_API_KEY}","LINEAR_TEAM_ID":"{env:LINEAR_TEAM_ID}"}},"crabcode-bridge":{"enabled":true}}}'
+export OPENCODE_CONFIG_CONTENT='{"autoupdate":false,"snapshot":false,"provider":{"github-copilot":{"npm":"@ai-sdk/openai-compatible","name":"GitHub Copilot","options":{"baseURL":"http://127.0.0.1:18791/v1"},"models":{"claude-opus-4.6":{"name":"Claude Opus 4.6","attachments":true,"toolcall":true},"claude-sonnet-4":{"name":"Claude Sonnet 4","attachments":true,"toolcall":true},"claude-sonnet-4.6":{"name":"Claude Sonnet 4.6","attachments":true,"toolcall":true},"gpt-4o":{"name":"GPT-4o","toolcall":true},"o3-mini":{"name":"o3-mini","toolcall":true}}}},"mcp":{"linear":{"type":"local","command":["node","./scripts/linear-mcp.mjs"],"enabled":true,"timeout":60000,"environment":{"LINEAR_API_KEY":"{env:LINEAR_API_KEY}","LINEAR_TEAM_ID":"{env:LINEAR_TEAM_ID}"}},"crabcode-bridge":{"enabled":true}}}'
 
 (cd "${OPENCODE_DIR}" && while true; do
     echo "[opencode] Launching opencode web..."
@@ -415,7 +415,7 @@ echo "[openchamber] Waiting for OpenCode on port ${OPENCODE_PORT}..."
 for i in $(seq 1 30); do
     if nc -z 127.0.0.1 "${OPENCODE_PORT}" 2>/dev/null; then
         # Verify the API actually responds, not just TCP open
-        if NO_PROXY=127.0.0.1 curl -s --max-time 2 http://127.0.0.1:${OPENCODE_PORT}/api/session >/dev/null 2>&1; then
+        if NO_PROXY=127.0.0.1 curl -s --max-time 2 http://127.0.0.1:${OPENCODE_PORT}/global/health >/dev/null 2>&1; then
             echo "[openchamber] OpenCode API ready"
             break
         fi
